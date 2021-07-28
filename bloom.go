@@ -58,7 +58,18 @@ func (b *DBloom) Test(data []byte) bool {
 	return b.underlyingFilter(data).Test(data)
 }
 
+func (b *DBloom) BucketSize() uint32 {
+	return uint32(b.filters[0].Cap())
+}
+
 func (b *DBloom) underlyingFilter(data []byte) *bloom.BloomFilter {
-	bucketID := bloom.Locations(data, 1)[0] % uint64(b.bucketsCount)
-	return b.filters[bucketID]
+	return b.filters[b.bucketID(data)]
+}
+
+func (b *DBloom) bucketID(data []byte) uint64 {
+	return bucketID(data, uint64(b.bucketsCount))
+}
+
+func bucketID(data []byte, bucketsCount uint64) uint64 {
+	return bloom.Locations(data, 1)[0] % bucketsCount
 }
