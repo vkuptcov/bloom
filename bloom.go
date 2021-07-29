@@ -28,6 +28,7 @@ func NewDBloom(bucketsCount uint32, totalElements uint64, falsePositives float64
 		totalElements:  totalElements,
 		falsePositives: falsePositives,
 		filters:        filters,
+		mutex:          &sync.Mutex{},
 	}
 }
 
