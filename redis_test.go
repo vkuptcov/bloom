@@ -17,7 +17,9 @@ func TestRedisFilter(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	filter := NewRedisBloom(client, "test", 10, 500, 0.001)
+	filter := NewRedisBloom(client, "test-bloom-"+faker.RandomString(5), 10, 500, 0.001)
+
+	require.NoError(filter.Init(context.Background()), "no error expected on filters initialization")
 
 	require.NoError(filter.Add(context.Background(), []byte("abc")), "adding data failed")
 
