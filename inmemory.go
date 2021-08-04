@@ -10,27 +10,23 @@ import (
 )
 
 type inMemoryBlooms struct {
-	bucketsCount   uint32
-	totalElements  uint64
-	falsePositives float64
+	filterParams FilterParams
 
 	filters []*bloom.BloomFilter
 	mutex   *sync.Mutex
 }
 
-func NewInMemory(bucketsCount uint32, totalElements uint64, falsePositives float64) *inMemoryBlooms {
-	bucketSize := totalElements / uint64(bucketsCount)
-	filters := make([]*bloom.BloomFilter, bucketSize)
-	for i := uint64(0); i < bucketSize; i++ {
-		filters[i] = bloom.NewWithEstimates(uint(bucketSize), falsePositives)
+func NewInMemory(filterParams FilterParams) *inMemoryBlooms {
+	bucketSize := filterParams.TotalElements / uint64(filterParams.BucketsCount)
+	filters := make([]*bloom.BloomFilter, filterParams.BucketsCount)
+	for i := uint32(0); i < filterParams.BucketsCount; i++ {
+		filters[i] = bloom.NewWithEstimates(uint(bucketSize), filterParams.FalsePositives)
 	}
 
 	return &inMemoryBlooms{
-		bucketsCount:   bucketsCount,
-		totalElements:  totalElements,
-		falsePositives: falsePositives,
-		filters:        filters,
-		mutex:          &sync.Mutex{},
+		filterParams: filterParams,
+		filters:      filters,
+		mutex:        &sync.Mutex{},
 	}
 }
 
@@ -79,13 +75,5 @@ func (b *inMemoryBlooms) BucketSize() uint32 {
 }
 
 func (b *inMemoryBlooms) underlyingFilter(data []byte) *bloom.BloomFilter {
-	return b.filters[b.bucketID(data)]
-}
-
-func (b *inMemoryBlooms) bucketID(data []byte) uint64 {
-	return bucketID(data, uint64(b.bucketsCount))
-}
-
-func bucketID(data []byte, bucketsCount uint64) uint64 {
-	return bloom.Locations(data, 1)[0] % bucketsCount
+	return b.filters[b.filterParams.BucketID(data)]
 }

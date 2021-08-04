@@ -18,7 +18,11 @@ func TestRedisFilter(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	filter := NewRedisBloom(client, "test-bloom-"+faker.RandomString(5), 10, 500, 0.001)
+	filter := NewRedisBloom(client, "test-bloom-"+faker.RandomString(5), FilterParams{
+		BucketsCount:   10,
+		TotalElements:  500,
+		FalsePositives: 0.001,
+	})
 
 	require.NoError(filter.Init(context.Background()), "no error expected on filters initialization")
 
@@ -41,8 +45,14 @@ func TestBloomFiltersEquality(t *testing.T) {
 	const totalElements = 100
 	const falsePositives = 0.001
 
-	redisFilter := NewRedisBloom(client, "test-bloom-"+faker.RandomString(5), bucketsCount, totalElements, falsePositives)
-	inmemory := NewInMemory(bucketsCount, totalElements, falsePositives)
+	filterParams := FilterParams{
+		BucketsCount:   bucketsCount,
+		TotalElements:  totalElements,
+		FalsePositives: falsePositives,
+	}
+
+	redisFilter := NewRedisBloom(client, "test-bloom-"+faker.RandomString(5), filterParams)
+	inmemory := NewInMemory(filterParams)
 
 	ctx := context.Background()
 
@@ -50,7 +60,7 @@ func TestBloomFiltersEquality(t *testing.T) {
 
 	t.Run("insert + get the same", func(t *testing.T) {
 		require := requireLib.New(t)
-		for i := 0; i < int(redisFilter.totalElements); i++ {
+		for i := 0; i < totalElements; i++ {
 			data := []byte(strconv.Itoa(i))
 
 			require.NoError(
@@ -72,7 +82,7 @@ func TestBloomFiltersEquality(t *testing.T) {
 
 	t.Run("restore bloom filter", func(t *testing.T) {
 		require := requireLib.New(t)
-		restoredInMemory := NewInMemory(bucketsCount, totalElements, falsePositives)
+		restoredInMemory := NewInMemory(filterParams)
 		for bucketID := uint64(0); bucketID < bucketsCount; bucketID++ {
 			var redisFilterBuf bytes.Buffer
 			writer := bufio.NewWriter(&redisFilterBuf)
@@ -90,13 +100,13 @@ func TestBloomFiltersEquality(t *testing.T) {
 	})
 }
 
-func checkBloomFiltersEquality(t *testing.T, redisFilter *RedisBloom, inmemory *inMemoryBlooms) {
+func checkBloomFiltersEquality(t *testing.T, redisFilter *redisBloom, inmemory *inMemoryBlooms) {
 	t.Helper()
 	ctx := context.Background()
-	falsePositives := redisFilter.falsePositives
+	falsePositives := redisFilter.filterParams.FalsePositives
 	t.Run("get the existing data", func(t *testing.T) {
 		require := requireLib.New(t)
-		for i := 0; i < int(redisFilter.totalElements); i++ {
+		for i := 0; i < int(redisFilter.filterParams.TotalElements); i++ {
 			data := []byte(strconv.Itoa(i))
 
 			redisCheckRes, checkErr := redisFilter.Test(ctx, data)

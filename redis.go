@@ -11,15 +11,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-type RedisBloom struct {
-	redis        redis.Cmdable
-	cachePrefix  string
-	bucketsCount uint32
+type redisBloom struct {
+	redis       redis.Cmdable
+	cachePrefix string
 
-	totalElements  uint64
-	falsePositives float64
+	filterParams FilterParams
 
-	bitsNumber          uint
+	bitsCount           uint
 	hashFunctionsNumber uint
 }
 
@@ -29,40 +27,33 @@ const wordSize = uint64(64)
 func NewRedisBloom(
 	redisClient redis.Cmdable,
 	cachePrefix string,
-	bucketsCount uint32,
-	totalElements uint64,
-	falsePositives float64,
-) *RedisBloom {
-	bitsNumber, hashFunctionsNumber := bloom.EstimateParameters(
-		uint(totalElements)/uint(bucketsCount),
-		falsePositives,
-	)
-	return &RedisBloom{
+	filterParams FilterParams,
+) *redisBloom {
+	bitsCount, hashFunctionsNumber := filterParams.EstimatedBucketParameters()
+	return &redisBloom{
 		redis:               redisClient,
 		cachePrefix:         cachePrefix,
-		bucketsCount:        bucketsCount,
-		totalElements:       totalElements,
-		falsePositives:      falsePositives,
-		bitsNumber:          bitsNumber,
+		filterParams:        filterParams,
+		bitsCount:           bitsCount,
 		hashFunctionsNumber: hashFunctionsNumber,
 	}
 }
 
-func (r *RedisBloom) Init(ctx context.Context) error {
+func (r *redisBloom) Init(ctx context.Context) error {
 	pipeliner := r.redis.Pipeline()
-	for bucketID := uint32(0); bucketID < r.bucketsCount; bucketID++ {
+	for bucketID := uint32(0); bucketID < r.filterParams.BucketsCount; bucketID++ {
 		key := r.redisKeyByBucket(uint64(bucketID))
-		pipeliner.BitField(ctx, key, "SET", "u1", (uint64(r.bitsNumber)/wordSize)*wordSize+wordSize+1, 1)
+		pipeliner.BitField(ctx, key, "SET", "u1", (uint64(r.bitsCount)/wordSize)*wordSize+wordSize+1, 1)
 	}
 	_, err := pipeliner.Exec(ctx)
 	return errors.Wrap(err, "Bloom filter buckets init error")
 }
 
-func (r *RedisBloom) Add(ctx context.Context, data []byte) error {
+func (r *redisBloom) Add(ctx context.Context, data []byte) error {
 	offsets := r.bitsOffset(data)
 	bitFieldArgs := make([]interface{}, 0, len(offsets)*4)
 	for _, l := range offsets {
-		offset := l % uint64(r.bitsNumber)
+		offset := l % uint64(r.bitsCount)
 		bitFieldArgs = append(bitFieldArgs, "SET", "u1", redisOffset(offset), 1)
 	}
 	key := r.redisKey(data)
@@ -70,11 +61,11 @@ func (r *RedisBloom) Add(ctx context.Context, data []byte) error {
 	return sliceCmd.Err()
 }
 
-func (r *RedisBloom) Test(ctx context.Context, data []byte) (bool, error) {
+func (r *redisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 	offsets := r.bitsOffset(data)
 	bitFieldArgs := make([]interface{}, 0, len(offsets)*3)
 	for _, l := range offsets {
-		offset := l % uint64(r.bitsNumber)
+		offset := l % uint64(r.bitsCount)
 		bitFieldArgs = append(bitFieldArgs, "GET", "u1", redisOffset(offset))
 	}
 	key := r.redisKey(data)
@@ -91,14 +82,14 @@ func (r *RedisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 	return true, nil
 }
 
-func (r *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
+func (r *redisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
 	header := []uint{
 		// bits number for *bloom.BloomFilter
-		r.bitsNumber,
+		r.bitsCount,
 		// hash functions count for *bloom.BloomFilter
 		r.hashFunctionsNumber,
 		// bits number for *bitset.BitSet
-		r.bitsNumber,
+		r.bitsCount,
 	}
 	for _, h := range header {
 		writeHeaderErr := binary.Write(stream, binary.BigEndian, uint64(h))
@@ -115,19 +106,19 @@ func (r *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Wri
 	return int64(size), errors.Wrapf(writeErr, "write filter data failed for bucket %d", bucketID)
 }
 
-func (r *RedisBloom) bitsOffset(data []byte) []uint64 {
+func (r *redisBloom) bitsOffset(data []byte) []uint64 {
 	locations := bloom.Locations(data, r.hashFunctionsNumber)
 	for idx, l := range locations {
-		locations[idx] = l % uint64(r.bitsNumber)
+		locations[idx] = l % uint64(r.bitsCount)
 	}
 	return locations
 }
 
-func (r *RedisBloom) redisKey(data []byte) string {
-	return r.redisKeyByBucket(bucketID(data, uint64(r.bucketsCount)))
+func (r *redisBloom) redisKey(data []byte) string {
+	return r.redisKeyByBucket(r.filterParams.BucketID(data))
 }
 
-func (r *RedisBloom) redisKeyByBucket(bucketID uint64) string {
+func (r *redisBloom) redisKeyByBucket(bucketID uint64) string {
 	return r.cachePrefix + "|" + strconv.FormatUint(bucketID, 10)
 }
 
