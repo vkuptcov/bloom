@@ -10,9 +10,10 @@ import (
 )
 
 type distributedFilter struct {
-	redisClient redis.UniversalClient
-	inMemory    *inMemoryBlooms
-	redisBloom  *redisBloom
+	redisClient     redis.UniversalClient
+	inMemory        *inMemoryBlooms
+	redisBloom      *redisBloom
+	testInterceptor testInterceptor
 }
 
 func NewDistributedFilter(
@@ -21,11 +22,16 @@ func NewDistributedFilter(
 	filterParams FilterParams,
 ) *distributedFilter {
 	f := &distributedFilter{
-		redisClient: redisClient,
-		inMemory:    NewInMemory(filterParams),
-		redisBloom:  NewRedisBloom(redisClient, cachePrefix, filterParams),
+		redisClient:     redisClient,
+		inMemory:        NewInMemory(filterParams),
+		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
+		testInterceptor: defaultNoOp,
 	}
 	return f
+}
+
+func (df *distributedFilter) setTestInterceptor(testInterceptor testInterceptor) {
+	df.testInterceptor = testInterceptor
 }
 
 func (df *distributedFilter) Init(ctx context.Context) error {
@@ -55,6 +61,7 @@ func (df *distributedFilter) Test(data []byte) bool {
 }
 
 func (df *distributedFilter) initInMemoryFilter(ctx context.Context) error {
+	df.testInterceptor.interfere("before-in-memory-init")
 	for bucketID := uint64(0); bucketID < uint64(df.inMemory.filterParams.BucketsCount); bucketID++ {
 		var redisFilterBuf bytes.Buffer
 		writer := bufio.NewWriter(&redisFilterBuf)
@@ -66,7 +73,7 @@ func (df *distributedFilter) initInMemoryFilter(ctx context.Context) error {
 			return errors.Wrap(flushErr, "bloom filter flush failed")
 		}
 
-		if restoreErr := df.inMemory.Restore(bucketID, bytes.NewReader(redisFilterBuf.Bytes())); restoreErr != nil {
+		if restoreErr := df.inMemory.AddFrom(bucketID, bytes.NewReader(redisFilterBuf.Bytes())); restoreErr != nil {
 			return errors.Wrap(restoreErr, "in-memory filter restore failed")
 		}
 	}

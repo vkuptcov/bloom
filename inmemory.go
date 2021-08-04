@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/bits-and-blooms/bloom/v3"
+	"github.com/pkg/errors"
 )
 
 type inMemoryBlooms struct {
@@ -60,6 +61,19 @@ func (b *inMemoryBlooms) Test(data []byte) bool {
 func (b *inMemoryBlooms) Restore(bucketID uint64, stream io.Reader) error {
 	_, err := b.filters[bucketID].ReadFrom(stream)
 	return err
+}
+
+func (b *inMemoryBlooms) AddFrom(bucketID uint64, stream io.Reader) error {
+	var restored bloom.BloomFilter
+	if _, restoreErr := restored.ReadFrom(stream); restoreErr != nil {
+		return errors.Wrap(restoreErr, "filter restore error")
+	}
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	if mergeErr := b.filters[bucketID].Merge(&restored); mergeErr != nil {
+		return errors.Wrap(mergeErr, "filter merge error")
+	}
+	return nil
 }
 
 func (b *inMemoryBlooms) Write(bucketID uint64) error {
