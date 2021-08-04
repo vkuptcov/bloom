@@ -26,11 +26,8 @@ type RedisBloom struct {
 // the wordSize of a bit set
 const wordSize = uint64(64)
 
-// log2WordSize is lg(wordSize)
-const log2WordSize = uint64(6)
-
 func NewRedisBloom(
-	redis redis.Cmdable,
+	redisClient redis.Cmdable,
 	cachePrefix string,
 	bucketsCount uint32,
 	totalElements uint64,
@@ -41,7 +38,7 @@ func NewRedisBloom(
 		falsePositives,
 	)
 	return &RedisBloom{
-		redis:               redis,
+		redis:               redisClient,
 		cachePrefix:         cachePrefix,
 		bucketsCount:        bucketsCount,
 		totalElements:       totalElements,
@@ -94,14 +91,14 @@ func (r *RedisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 	return true, nil
 }
 
-func (f *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
+func (r *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
 	header := []uint{
 		// bits number for *bloom.BloomFilter
-		f.bitsNumber,
+		r.bitsNumber,
 		// hash functions count for *bloom.BloomFilter
-		f.hashFunctionsNumber,
+		r.hashFunctionsNumber,
 		// bits number for *bitset.BitSet
-		f.bitsNumber,
+		r.bitsNumber,
 	}
 	for _, h := range header {
 		writeHeaderErr := binary.Write(stream, binary.BigEndian, uint64(h))
@@ -109,7 +106,7 @@ func (f *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Wri
 			return 0, errors.Wrapf(writeHeaderErr, "header write error for bucket %d", bucketID)
 		}
 	}
-	stringCmd := f.redis.Get(ctx, f.redisKeyByBucket(bucketID))
+	stringCmd := r.redis.Get(ctx, r.redisKeyByBucket(bucketID))
 	b, gettingBytesErr := stringCmd.Bytes()
 	if gettingBytesErr != nil {
 		return 0, errors.Wrapf(gettingBytesErr, "getting filter data failed for bucket %d", bucketID)
