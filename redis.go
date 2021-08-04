@@ -12,7 +12,7 @@ import (
 )
 
 type redisBloom struct {
-	redis       redis.Cmdable
+	redisClient redis.Cmdable
 	cachePrefix string
 
 	filterParams FilterParams
@@ -31,7 +31,7 @@ func NewRedisBloom(
 ) *redisBloom {
 	bitsCount, hashFunctionsNumber := filterParams.EstimatedBucketParameters()
 	return &redisBloom{
-		redis:               redisClient,
+		redisClient:         redisClient,
 		cachePrefix:         cachePrefix,
 		filterParams:        filterParams,
 		bitsCount:           bitsCount,
@@ -40,7 +40,7 @@ func NewRedisBloom(
 }
 
 func (r *redisBloom) Init(ctx context.Context) error {
-	pipeliner := r.redis.Pipeline()
+	pipeliner := r.redisClient.Pipeline()
 	for bucketID := uint32(0); bucketID < r.filterParams.BucketsCount; bucketID++ {
 		key := r.redisKeyByBucket(uint64(bucketID))
 		pipeliner.BitField(ctx, key, "SET", "u1", (uint64(r.bitsCount)/wordSize)*wordSize+wordSize+1, 1)
@@ -57,7 +57,7 @@ func (r *redisBloom) Add(ctx context.Context, data []byte) error {
 		bitFieldArgs = append(bitFieldArgs, "SET", "u1", redisOffset(offset), 1)
 	}
 	key := r.redisKey(data)
-	sliceCmd := r.redis.BitField(ctx, key, bitFieldArgs...)
+	sliceCmd := r.redisClient.BitField(ctx, key, bitFieldArgs...)
 	return sliceCmd.Err()
 }
 
@@ -69,7 +69,7 @@ func (r *redisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 		bitFieldArgs = append(bitFieldArgs, "GET", "u1", redisOffset(offset))
 	}
 	key := r.redisKey(data)
-	sliceCmds := r.redis.BitField(ctx, key, bitFieldArgs...)
+	sliceCmds := r.redisClient.BitField(ctx, key, bitFieldArgs...)
 	res, err := sliceCmds.Result()
 	if err != nil {
 		return false, err
@@ -97,7 +97,7 @@ func (r *redisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Wri
 			return 0, errors.Wrapf(writeHeaderErr, "header write error for bucket %d", bucketID)
 		}
 	}
-	stringCmd := r.redis.Get(ctx, r.redisKeyByBucket(bucketID))
+	stringCmd := r.redisClient.Get(ctx, r.redisKeyByBucket(bucketID))
 	b, gettingBytesErr := stringCmd.Bytes()
 	if gettingBytesErr != nil {
 		return 0, errors.Wrapf(gettingBytesErr, "getting filter data failed for bucket %d", bucketID)
