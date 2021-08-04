@@ -2,6 +2,8 @@ package bloom
 
 import (
 	"context"
+	"encoding/binary"
+	"io"
 	"strconv"
 
 	"github.com/bits-and-blooms/bloom/v3"
@@ -20,6 +22,12 @@ type RedisBloom struct {
 	bitsNumber          uint
 	hashFunctionsNumber uint
 }
+
+// the wordSize of a bit set
+const wordSize = uint64(64)
+
+// log2WordSize is lg(wordSize)
+const log2WordSize = uint64(6)
 
 func NewRedisBloom(
 	redis redis.Cmdable,
@@ -47,7 +55,7 @@ func (r *RedisBloom) Init(ctx context.Context) error {
 	pipeliner := r.redis.Pipeline()
 	for bucketID := uint32(0); bucketID < r.bucketsCount; bucketID++ {
 		key := r.redisKeyByBucket(uint64(bucketID))
-		pipeliner.BitField(ctx, key, "SET", "u1", r.bitsNumber+1, 1)
+		pipeliner.BitField(ctx, key, "SET", "u1", (uint64(r.bitsNumber)/wordSize)*wordSize+wordSize+1, 1)
 	}
 	_, err := pipeliner.Exec(ctx)
 	return errors.Wrap(err, "Bloom filter buckets init error")
@@ -58,7 +66,7 @@ func (r *RedisBloom) Add(ctx context.Context, data []byte) error {
 	bitFieldArgs := make([]interface{}, 0, len(offsets)*4)
 	for _, l := range offsets {
 		offset := l % uint64(r.bitsNumber)
-		bitFieldArgs = append(bitFieldArgs, "SET", "u1", offset, 1)
+		bitFieldArgs = append(bitFieldArgs, "SET", "u1", redisOffset(offset), 1)
 	}
 	key := r.redisKey(data)
 	sliceCmd := r.redis.BitField(ctx, key, bitFieldArgs...)
@@ -70,7 +78,7 @@ func (r *RedisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 	bitFieldArgs := make([]interface{}, 0, len(offsets)*3)
 	for _, l := range offsets {
 		offset := l % uint64(r.bitsNumber)
-		bitFieldArgs = append(bitFieldArgs, "GET", "u1", offset)
+		bitFieldArgs = append(bitFieldArgs, "GET", "u1", redisOffset(offset))
 	}
 	key := r.redisKey(data)
 	sliceCmds := r.redis.BitField(ctx, key, bitFieldArgs...)
@@ -84,6 +92,30 @@ func (r *RedisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func (f *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
+	header := []uint{
+		// bits number for *bloom.BloomFilter
+		f.bitsNumber,
+		// hash functions count for *bloom.BloomFilter
+		f.hashFunctionsNumber,
+		// bits number for *bitset.BitSet
+		f.bitsNumber,
+	}
+	for _, h := range header {
+		writeHeaderErr := binary.Write(stream, binary.BigEndian, uint64(h))
+		if writeHeaderErr != nil {
+			return 0, errors.Wrapf(writeHeaderErr, "header write error for bucket %d", bucketID)
+		}
+	}
+	stringCmd := f.redis.Get(ctx, f.redisKeyByBucket(bucketID))
+	b, gettingBytesErr := stringCmd.Bytes()
+	if gettingBytesErr != nil {
+		return 0, errors.Wrapf(gettingBytesErr, "getting filter data failed for bucket %d", bucketID)
+	}
+	size, writeErr := stream.Write(b[0:(len(b) - 1)])
+	return int64(size), errors.Wrapf(writeErr, "write filter data failed for bucket %d", bucketID)
 }
 
 func (r *RedisBloom) bitsOffset(data []byte) []uint64 {
@@ -100,4 +132,10 @@ func (r *RedisBloom) redisKey(data []byte) string {
 
 func (r *RedisBloom) redisKeyByBucket(bucketID uint64) string {
 	return r.cachePrefix + "|" + strconv.FormatUint(bucketID, 10)
+}
+
+func redisOffset(bitNum uint64) uint64 {
+	wordNum := bitNum / wordSize
+	wordShift := wordSize - (bitNum & (wordSize - 1)) - 1
+	return wordNum*wordSize + wordShift
 }

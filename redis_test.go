@@ -1,10 +1,11 @@
 package bloom
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/go-redis/redis/v8"
 	requireLib "github.com/stretchr/testify/require"
@@ -36,31 +37,72 @@ func TestBloomFiltersEquality(t *testing.T) {
 	client := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 	})
-	const bucketsCount = 50
-	const totalElements = 50000
+	const bucketsCount = 1
+	const totalElements = 100
 	const falsePositives = 0.001
 
 	redisFilter := NewRedisBloom(client, "test-bloom-"+faker.RandomString(5), bucketsCount, totalElements, falsePositives)
-	dbloom := NewDBloom(bucketsCount, totalElements, falsePositives)
+	inmemory := NewInMemory(bucketsCount, totalElements, falsePositives)
 
 	ctx := context.Background()
-	start := time.Now().Unix()
+
+	requireLib.NoError(t, redisFilter.Init(ctx))
 
 	t.Run("insert + get the same", func(t *testing.T) {
 		require := requireLib.New(t)
-		for i := 0; i < totalElements/2; i++ {
-			data := strconv.FormatInt(start, 10) + "_" + strconv.Itoa(i)
+		for i := 0; i < int(redisFilter.totalElements); i++ {
+			data := []byte(strconv.Itoa(i))
 
 			require.NoError(
-				redisFilter.Add(ctx, []byte(data)),
+				redisFilter.Add(ctx, data),
 				"No error expected on adding data in Redis",
 			)
-			dbloom.AddString(data)
+			inmemory.Add(data)
 
-			redisCheckRes, checkErr := redisFilter.Test(ctx, []byte(data))
+			redisCheckRes, checkErr := redisFilter.Test(ctx, data)
 			require.NoError(checkErr, "data check in Redis failed")
 
-			imMemoryCheck := dbloom.Test([]byte(data))
+			imMemoryCheck := inmemory.Test(data)
+			require.Truef(redisCheckRes, "value %q expected in Redis", data)
+			require.Truef(imMemoryCheck, "value %q expected in memory", data)
+		}
+	})
+
+	checkBloomFiltersEquality(t, redisFilter, inmemory)
+
+	t.Run("restore bloom filter", func(t *testing.T) {
+		require := requireLib.New(t)
+		restoredInMemory := NewInMemory(bucketsCount, totalElements, falsePositives)
+		for bucketID := uint64(0); bucketID < bucketsCount; bucketID++ {
+			var redisFilterBuf bytes.Buffer
+			writer := bufio.NewWriter(&redisFilterBuf)
+			_, redisBloomWriteErr := redisFilter.WriteTo(context.Background(), bucketID, writer)
+			require.NoError(redisBloomWriteErr, "redis filter saving failed")
+
+			require.NoError(writer.Flush())
+
+			require.NoError(
+				restoredInMemory.Restore(bucketID, bytes.NewReader(redisFilterBuf.Bytes())),
+				"no error expected on bucket restore",
+			)
+		}
+		checkBloomFiltersEquality(t, redisFilter, restoredInMemory)
+	})
+}
+
+func checkBloomFiltersEquality(t *testing.T, redisFilter *RedisBloom, inmemory *inMemoryBlooms) {
+	t.Helper()
+	ctx := context.Background()
+	falsePositives := redisFilter.falsePositives
+	t.Run("get the existing data", func(t *testing.T) {
+		require := requireLib.New(t)
+		for i := 0; i < int(redisFilter.totalElements); i++ {
+			data := []byte(strconv.Itoa(i))
+
+			redisCheckRes, checkErr := redisFilter.Test(ctx, data)
+			require.NoError(checkErr, "data check in Redis failed")
+
+			imMemoryCheck := inmemory.Test(data)
 			require.Truef(redisCheckRes, "value %q expected in Redis", data)
 			require.Truef(imMemoryCheck, "value %q expected in memory", data)
 		}
@@ -75,7 +117,7 @@ func TestBloomFiltersEquality(t *testing.T) {
 			redisCheckRes, checkErr := redisFilter.Test(ctx, []byte(data))
 			require.NoError(checkErr, "data check in Redis failed")
 
-			imMemoryCheck := dbloom.Test([]byte(data))
+			imMemoryCheck := inmemory.Test([]byte(data))
 			require.Equal(redisCheckRes, imMemoryCheck, "both filters should respond with the same data")
 			if imMemoryCheck {
 				actualFalsePositives++
