@@ -3,7 +3,9 @@ package bloom
 import (
 	"context"
 	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/suite"
@@ -73,6 +75,81 @@ func (st *DistributedFilterSuite) TestAdd() {
 			st.Require().True(
 				restoredFilter.Test(data),
 				"data expected in the distributed filter",
+			)
+		}
+	})
+}
+
+//nolint:gocognit //it's a test function with multiple steps
+func (st *DistributedFilterSuite) TestSeveralFiltersSync() {
+	cachePrefix := "test-bloom-" + faker.RandomString(5)
+	fp := FilterParams{
+		BucketsCount:   10,
+		TotalElements:  10000,
+		FalsePositives: 0.001,
+	}
+	filters := make([]*distributedFilter, 10)
+	wg := &sync.WaitGroup{}
+	for filterNum := 0; filterNum < 10; filterNum++ {
+		wg.Add(1)
+		go func(shift int) {
+			filter := NewDistributedFilter(
+				st.client,
+				cachePrefix,
+				fp,
+			)
+			filters[shift] = filter
+			st.Require().NoErrorf(
+				filter.Init(
+					context.Background()),
+				"filter `%d` init failed",
+				shift,
+			)
+			for i := shift * 1000; i < (shift+1)*1000; i++ {
+				data := []byte(strconv.Itoa(i))
+				st.Require().NoErrorf(
+					filter.Add(context.Background(), data),
+					"add data error into filter `%d`",
+					shift,
+				)
+			}
+			wg.Done()
+		}(filterNum)
+	}
+	wg.Wait()
+
+	time.Sleep(1 * time.Second)
+
+	st.Run("check existed elements", func() {
+		for i := 0; i < 10000; i++ {
+			for filterID, filter := range filters {
+				data := []byte(strconv.Itoa(i))
+				st.Require().Truef(
+					filter.Test(data),
+					"data check `%d` failed for filter `%d`",
+					i,
+					filterID,
+				)
+			}
+		}
+	})
+
+	st.Run("check random elements", func() {
+		for attemptNum := 0; attemptNum < 10000; attemptNum++ {
+			data := []byte(faker.RandomString(5))
+			exists := 0
+			nonExists := 0
+			for _, filter := range filters {
+				if filter.Test(data) {
+					exists++
+				} else {
+					nonExists++
+				}
+			}
+			st.Require().True(
+				(exists > 0 && nonExists == 0) ||
+					(exists == 0 && nonExists > 0),
+				"All filters should respond with the same data",
 			)
 		}
 	})

@@ -10,13 +10,13 @@ import (
 )
 
 type distributedFilter struct {
-	redisClient redis.Cmdable
+	redisClient redis.UniversalClient
 	inMemory    *inMemoryBlooms
 	redisBloom  *redisBloom
 }
 
 func NewDistributedFilter(
-	redisClient redis.Cmdable,
+	redisClient redis.UniversalClient,
 	cachePrefix string,
 	filterParams FilterParams,
 ) *distributedFilter {
@@ -29,10 +29,16 @@ func NewDistributedFilter(
 }
 
 func (df *distributedFilter) Init(ctx context.Context) error {
+	pubSub := df.redisClient.Subscribe(ctx, df.redisBloom.cachePrefix)
+	if _, receiveErr := pubSub.Receive(ctx); receiveErr != nil {
+		return errors.Wrap(receiveErr, "redis filter subscription failed")
+	}
+
 	initRedisFilterErr := df.redisBloom.Init(ctx)
 	if initRedisFilterErr != nil {
 		return errors.Wrap(initRedisFilterErr, "redis filter initialization failed")
 	}
+	go df.listenForChanges(pubSub)
 	return df.initInMemoryFilter(ctx)
 }
 
@@ -65,4 +71,12 @@ func (df *distributedFilter) initInMemoryFilter(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (df *distributedFilter) listenForChanges(pubSub *redis.PubSub) {
+	for message := range pubSub.Channel() {
+		if message.Channel == df.redisBloom.cachePrefix {
+			df.inMemory.Add([]byte(message.Payload))
+		}
+	}
 }

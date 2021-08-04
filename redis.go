@@ -57,8 +57,12 @@ func (r *redisBloom) Add(ctx context.Context, data []byte) error {
 		bitFieldArgs = append(bitFieldArgs, "SET", "u1", redisOffset(offset), 1)
 	}
 	key := r.redisKey(data)
-	sliceCmd := r.redisClient.BitField(ctx, key, bitFieldArgs...)
-	return sliceCmd.Err()
+	_, err := r.redisClient.Pipelined(ctx, func(pipeliner redis.Pipeliner) error {
+		_ = pipeliner.BitField(ctx, key, bitFieldArgs...)
+		pipeliner.Publish(ctx, r.cachePrefix, data)
+		return nil
+	})
+	return err
 }
 
 func (r *redisBloom) Test(ctx context.Context, data []byte) (bool, error) {
