@@ -24,7 +24,7 @@ func NewDistributedFilter(
 	f := &distributedFilter{
 		redisClient:     redisClient,
 		inMemory:        NewInMemory(filterParams),
-		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
+		redisBloom:      NewRedisBloom(NewGoRedisClient(redisClient), cachePrefix, filterParams),
 		testInterceptor: defaultNoOp,
 	}
 	return f

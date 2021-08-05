@@ -7,12 +7,11 @@ import (
 	"strconv"
 
 	"github.com/bits-and-blooms/bloom/v3"
-	"github.com/go-redis/redis/v8"
 	"github.com/pkg/errors"
 )
 
 type redisBloom struct {
-	redisClient redis.Cmdable
+	client      RedisClient
 	cachePrefix string
 
 	filterParams FilterParams
@@ -25,13 +24,13 @@ type redisBloom struct {
 const wordSize = uint64(64)
 
 func NewRedisBloom(
-	redisClient redis.Cmdable,
+	redisClient RedisClient,
 	cachePrefix string,
 	filterParams FilterParams,
 ) *redisBloom {
 	bitsCount, hashFunctionsNumber := filterParams.EstimatedBucketParameters()
 	return &redisBloom{
-		redisClient:         redisClient,
+		client:              redisClient,
 		cachePrefix:         cachePrefix,
 		filterParams:        filterParams,
 		bitsCount:           bitsCount,
@@ -40,48 +39,27 @@ func NewRedisBloom(
 }
 
 func (r *redisBloom) Init(ctx context.Context) error {
-	pipeliner := r.redisClient.Pipeline()
+	pipeliner := r.client.Pipeliner(ctx)
 	for bucketID := uint32(0); bucketID < r.filterParams.BucketsCount; bucketID++ {
 		key := r.redisKeyByBucket(uint64(bucketID))
-		pipeliner.BitField(ctx, key, "SET", "u1", ((uint64(r.bitsCount)/wordSize)+1)*wordSize+1, 1)
+		pipeliner.SetBits(key, ((uint64(r.bitsCount)/wordSize)+1)*wordSize+1)
 	}
-	_, err := pipeliner.Exec(ctx)
-	return errors.Wrap(err, "Bloom filter buckets init error")
+	return errors.Wrap(pipeliner.Exec(), "Bloom filter buckets init error")
 }
 
 func (r *redisBloom) Add(ctx context.Context, data []byte) error {
 	offsets := r.bitsOffset(data)
-	bitFieldArgs := make([]interface{}, 0, len(offsets)*4)
-	for _, offset := range offsets {
-		bitFieldArgs = append(bitFieldArgs, "SET", "u1", offset, 1)
-	}
 	key := r.redisKey(data)
-	_, err := r.redisClient.Pipelined(ctx, func(pipeliner redis.Pipeliner) error {
-		_ = pipeliner.BitField(ctx, key, bitFieldArgs...)
-		pipeliner.Publish(ctx, r.cachePrefix, data)
-		return nil
-	})
-	return errors.Wrap(err, "filter update in Redis failed")
+	pipeliner := r.client.Pipeliner(ctx)
+	pipeliner.SetBits(key, offsets...)
+	pipeliner.Publish(r.cachePrefix, data)
+	return errors.Wrap(pipeliner.Exec(), "filter update in Redis failed")
 }
 
 func (r *redisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 	offsets := r.bitsOffset(data)
-	bitFieldArgs := make([]interface{}, 0, len(offsets)*3)
-	for _, offset := range offsets {
-		bitFieldArgs = append(bitFieldArgs, "GET", "u1", offset)
-	}
 	key := r.redisKey(data)
-	sliceCmds := r.redisClient.BitField(ctx, key, bitFieldArgs...)
-	res, err := sliceCmds.Result()
-	if err != nil {
-		return false, err
-	}
-	for _, s := range res {
-		if s == 0 {
-			return false, nil
-		}
-	}
-	return true, nil
+	return r.client.CheckBits(ctx, key, offsets...)
 }
 
 func (r *redisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
@@ -99,8 +77,7 @@ func (r *redisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Wri
 			return 0, errors.Wrapf(writeHeaderErr, "header write error for bucket %d", bucketID)
 		}
 	}
-	stringCmd := r.redisClient.Get(ctx, r.redisKeyByBucket(bucketID))
-	b, gettingBytesErr := stringCmd.Bytes()
+	b, gettingBytesErr := r.client.Get(ctx, r.redisKeyByBucket(bucketID))
 	if gettingBytesErr != nil {
 		return 0, errors.Wrapf(gettingBytesErr, "getting filter data failed for bucket %d", bucketID)
 	}

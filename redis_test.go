@@ -18,7 +18,7 @@ func TestRedisFilter(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	filter := NewRedisBloom(client, "test-bloom-"+faker.RandomString(5), FilterParams{
+	filter := NewRedisBloom(NewGoRedisClient(client), "test-bloom-"+faker.RandomString(5), FilterParams{
 		BucketsCount:   10,
 		TotalElements:  500,
 		FalsePositives: 0.001,
@@ -51,7 +51,7 @@ func TestBloomFiltersEquality(t *testing.T) {
 		FalsePositives: falsePositives,
 	}
 
-	redisFilter := NewRedisBloom(client, "test-bloom-"+faker.RandomString(5), filterParams)
+	redisFilter := NewRedisBloom(NewGoRedisClient(client), "test-bloom-"+faker.RandomString(5), filterParams)
 	inmemory := NewInMemory(filterParams)
 
 	ctx := context.Background()
