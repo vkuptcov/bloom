@@ -43,7 +43,7 @@ func (r *redisBloom) Init(ctx context.Context) error {
 	pipeliner := r.redisClient.Pipeline()
 	for bucketID := uint32(0); bucketID < r.filterParams.BucketsCount; bucketID++ {
 		key := r.redisKeyByBucket(uint64(bucketID))
-		pipeliner.BitField(ctx, key, "SET", "u1", (uint64(r.bitsCount)/wordSize)*wordSize+wordSize+1, 1)
+		pipeliner.BitField(ctx, key, "SET", "u1", ((uint64(r.bitsCount)/wordSize)+1)*wordSize+1, 1)
 	}
 	_, err := pipeliner.Exec(ctx)
 	return errors.Wrap(err, "Bloom filter buckets init error")
@@ -61,7 +61,7 @@ func (r *redisBloom) Add(ctx context.Context, data []byte) error {
 		pipeliner.Publish(ctx, r.cachePrefix, data)
 		return nil
 	})
-	return err
+	return errors.Wrap(err, "filter update in Redis failed")
 }
 
 func (r *redisBloom) Test(ctx context.Context, data []byte) (bool, error) {
