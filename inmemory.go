@@ -2,7 +2,6 @@ package bloom
 
 import (
 	"bytes"
-	"encoding/binary"
 	"io"
 	"sync"
 
@@ -42,20 +41,36 @@ func (b *inMemoryBlooms) AddString(data string) *inMemoryBlooms {
 	return b.Add([]byte(data))
 }
 
+func (b *inMemoryBlooms) AddUint16(i uint16) *inMemoryBlooms {
+	return b.Add(uint16ToByte(i))
+}
+
 func (b *inMemoryBlooms) AddUint32(i uint32) *inMemoryBlooms {
-	data := make([]byte, 4)
-	binary.BigEndian.PutUint32(data, i)
-	return b.Add(data)
+	return b.Add(uint32ToByte(i))
 }
 
 func (b *inMemoryBlooms) AddUint64(i uint64) *inMemoryBlooms {
-	data := make([]byte, 8)
-	binary.BigEndian.PutUint64(data, i)
-	return b.Add(data)
+	return b.Add(uint64ToByte(i))
 }
 
 func (b *inMemoryBlooms) Test(data []byte) bool {
 	return b.underlyingFilter(data).Test(data)
+}
+
+func (b *inMemoryBlooms) TestString(data string) bool {
+	return b.Test([]byte(data))
+}
+
+func (b *inMemoryBlooms) TestUint16(i uint16) bool {
+	return b.Test(uint16ToByte(i))
+}
+
+func (b *inMemoryBlooms) TestUint32(i uint32) bool {
+	return b.Test(uint32ToByte(i))
+}
+
+func (b *inMemoryBlooms) TestUint64(i uint64) bool {
+	return b.Test(uint64ToByte(i))
 }
 
 func (b *inMemoryBlooms) Restore(bucketID uint64, stream io.Reader) error {

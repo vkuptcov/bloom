@@ -60,6 +60,22 @@ func (df *distributedFilter) Test(data []byte) bool {
 	return df.inMemory.Test(data)
 }
 
+func (df *distributedFilter) TestString(data string) bool {
+	return df.Test([]byte(data))
+}
+
+func (df *distributedFilter) TestUint16(i uint16) bool {
+	return df.Test(uint16ToByte(i))
+}
+
+func (df *distributedFilter) TestUint32(i uint32) bool {
+	return df.Test(uint32ToByte(i))
+}
+
+func (df *distributedFilter) TestUint64(i uint64) bool {
+	return df.Test(uint64ToByte(i))
+}
+
 func (df *distributedFilter) initInMemoryFilter(ctx context.Context) error {
 	df.testInterceptor.interfere("before-in-memory-init")
 	for bucketID := uint64(0); bucketID < uint64(df.inMemory.filterParams.BucketsCount); bucketID++ {

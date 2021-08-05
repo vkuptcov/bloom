@@ -20,3 +20,11 @@ func (fp FilterParams) EstimatedBucketParameters() (bitsCount, hashFunctionsNumb
 func (fp FilterParams) BucketID(data []byte) uint64 {
 	return bloom.Locations(data, 1)[0] % uint64(fp.BucketsCount)
 }
+
+type TestPresence interface {
+	Test(data []byte) bool
+	TestString(data string) bool
+	TestUint16(i uint16) bool
+	TestUint32(i uint32) bool
+	TestUint64(i uint64) bool
+}
