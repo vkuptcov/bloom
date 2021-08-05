@@ -5,26 +5,25 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/go-redis/redis/v8"
 	"github.com/pkg/errors"
 )
 
 type distributedFilter struct {
-	redisClient     redis.UniversalClient
+	redisClient     RedisClient
 	inMemory        *inMemoryBlooms
 	redisBloom      *redisBloom
 	testInterceptor testInterceptor
 }
 
 func NewDistributedFilter(
-	redisClient redis.UniversalClient,
+	redisClient RedisClient,
 	cachePrefix string,
 	filterParams FilterParams,
 ) *distributedFilter {
 	f := &distributedFilter{
 		redisClient:     redisClient,
 		inMemory:        NewInMemory(filterParams),
-		redisBloom:      NewRedisBloom(NewGoRedisClient(redisClient), cachePrefix, filterParams),
+		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
 		testInterceptor: defaultNoOp,
 	}
 	return f
@@ -35,9 +34,9 @@ func (df *distributedFilter) setTestInterceptor(testInterceptor testInterceptor)
 }
 
 func (df *distributedFilter) Init(ctx context.Context) error {
-	pubSub := df.redisClient.Subscribe(ctx, df.redisBloom.cachePrefix)
-	if _, receiveErr := pubSub.Receive(ctx); receiveErr != nil {
-		return errors.Wrap(receiveErr, "redis filter subscription failed")
+	pubSub, listenErr := df.redisClient.Listen(ctx, df.redisBloom.cachePrefix)
+	if listenErr != nil {
+		return errors.Wrap(listenErr, "redis filter subscription failed")
 	}
 
 	initRedisFilterErr := df.redisBloom.Init(ctx)
@@ -112,8 +111,8 @@ func (df *distributedFilter) initInMemoryFilter(ctx context.Context) error {
 	return nil
 }
 
-func (df *distributedFilter) listenForChanges(pubSub *redis.PubSub) {
-	for message := range pubSub.Channel() {
+func (df *distributedFilter) listenForChanges(pubSub <-chan *Message) {
+	for message := range pubSub {
 		if message.Channel == df.redisBloom.cachePrefix {
 			df.inMemory.Add([]byte(message.Payload))
 		}

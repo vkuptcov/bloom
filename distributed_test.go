@@ -26,7 +26,7 @@ func (st *DistributedFilterSuite) SetupSuite() {
 
 func (st *DistributedFilterSuite) SetupTest() {
 	st.distributedFilter = NewDistributedFilter(
-		st.client,
+		NewGoRedisClient(st.client),
 		"test-bloom-"+faker.RandomString(5),
 		FilterParams{
 			BucketsCount:   10,
@@ -60,7 +60,7 @@ func (st *DistributedFilterSuite) TestAdd() {
 
 	st.Run("restore filter", func() {
 		restoredFilter := NewDistributedFilter(
-			st.client,
+			NewGoRedisClient(st.client),
 			st.distributedFilter.redisBloom.cachePrefix,
 			st.distributedFilter.redisBloom.filterParams,
 		)
@@ -95,7 +95,7 @@ func (st *DistributedFilterSuite) TestSeveralFiltersSync() {
 		wg.Add(1)
 		go func(shift int) {
 			filter := NewDistributedFilter(
-				st.client,
+				NewGoRedisClient(st.client),
 				cachePrefix,
 				fp,
 			)
