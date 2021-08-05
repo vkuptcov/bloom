@@ -56,6 +56,22 @@ func (df *distributedFilter) Add(ctx context.Context, data []byte) error {
 	return nil
 }
 
+func (df *distributedFilter) AddString(ctx context.Context, data string) error {
+	return df.Add(ctx, []byte(data))
+}
+
+func (df *distributedFilter) AddUint16(ctx context.Context, i uint16) error {
+	return df.Add(ctx, uint16ToByte(i))
+}
+
+func (df *distributedFilter) AddUint32(ctx context.Context, i uint32) error {
+	return df.Add(ctx, uint32ToByte(i))
+}
+
+func (df *distributedFilter) AddUint64(ctx context.Context, i uint64) error {
+	return df.Add(ctx, uint64ToByte(i))
+}
+
 func (df *distributedFilter) Test(data []byte) bool {
 	return df.inMemory.Test(data)
 }
