@@ -1,7 +1,6 @@
 package bloom
 
 import (
-	"bytes"
 	"io"
 	"sync"
 
@@ -89,14 +88,6 @@ func (b *inMemoryBlooms) AddFrom(bucketID uint64, stream io.Reader) error {
 		return errors.Wrap(mergeErr, "filter merge error")
 	}
 	return nil
-}
-
-func (b *inMemoryBlooms) Write(bucketID uint64) error {
-	buf := &bytes.Buffer{}
-	_, err := b.filters[bucketID].WriteTo(buf)
-	str := buf.String()
-	println(str)
-	return err
 }
 
 func (b *inMemoryBlooms) BucketSize() uint32 {
