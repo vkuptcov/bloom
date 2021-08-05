@@ -17,10 +17,10 @@ type inMemoryBlooms struct {
 }
 
 func NewInMemory(filterParams FilterParams) *inMemoryBlooms {
-	bucketSize := filterParams.TotalElements / uint64(filterParams.BucketsCount)
 	filters := make([]*bloom.BloomFilter, filterParams.BucketsCount)
+	bitsCount, hashFunctionsNumber := filterParams.EstimatedBucketParameters()
 	for i := uint32(0); i < filterParams.BucketsCount; i++ {
-		filters[i] = bloom.NewWithEstimates(uint(bucketSize), filterParams.FalsePositives)
+		filters[i] = bloom.New(bitsCount, hashFunctionsNumber)
 	}
 
 	return &inMemoryBlooms{
