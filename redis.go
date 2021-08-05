@@ -52,9 +52,8 @@ func (r *redisBloom) Init(ctx context.Context) error {
 func (r *redisBloom) Add(ctx context.Context, data []byte) error {
 	offsets := r.bitsOffset(data)
 	bitFieldArgs := make([]interface{}, 0, len(offsets)*4)
-	for _, l := range offsets {
-		offset := l % uint64(r.bitsCount)
-		bitFieldArgs = append(bitFieldArgs, "SET", "u1", redisOffset(offset), 1)
+	for _, offset := range offsets {
+		bitFieldArgs = append(bitFieldArgs, "SET", "u1", offset, 1)
 	}
 	key := r.redisKey(data)
 	_, err := r.redisClient.Pipelined(ctx, func(pipeliner redis.Pipeliner) error {
@@ -68,9 +67,8 @@ func (r *redisBloom) Add(ctx context.Context, data []byte) error {
 func (r *redisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 	offsets := r.bitsOffset(data)
 	bitFieldArgs := make([]interface{}, 0, len(offsets)*3)
-	for _, l := range offsets {
-		offset := l % uint64(r.bitsCount)
-		bitFieldArgs = append(bitFieldArgs, "GET", "u1", redisOffset(offset))
+	for _, offset := range offsets {
+		bitFieldArgs = append(bitFieldArgs, "GET", "u1", offset)
 	}
 	key := r.redisKey(data)
 	sliceCmds := r.redisClient.BitField(ctx, key, bitFieldArgs...)
@@ -113,7 +111,7 @@ func (r *redisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Wri
 func (r *redisBloom) bitsOffset(data []byte) []uint64 {
 	locations := bloom.Locations(data, r.hashFunctionsNumber)
 	for idx, l := range locations {
-		locations[idx] = l % uint64(r.bitsCount)
+		locations[idx] = redisOffset(l % uint64(r.bitsCount))
 	}
 	return locations
 }
