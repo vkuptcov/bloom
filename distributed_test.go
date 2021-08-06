@@ -14,7 +14,7 @@ import (
 
 type DistributedFilterSuite struct {
 	client            *redis.Client
-	distributedFilter *distributedFilter
+	distributedFilter *DistributedFilter
 	suite.Suite
 }
 
@@ -88,7 +88,7 @@ func (st *DistributedFilterSuite) TestSeveralFiltersSync() {
 		TotalElements:  10000,
 		FalsePositives: 0.001,
 	}
-	filters := make([]*distributedFilter, 10)
+	filters := make([]*DistributedFilter, 10)
 	wg := &sync.WaitGroup{}
 
 	for filterNum := 0; filterNum < 10; filterNum++ {

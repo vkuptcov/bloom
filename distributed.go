@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-type distributedFilter struct {
+type DistributedFilter struct {
 	redisClient     RedisClient
 	inMemory        *inMemoryBlooms
 	redisBloom      *redisBloom
@@ -19,8 +19,8 @@ func NewDistributedFilter(
 	redisClient RedisClient,
 	cachePrefix string,
 	filterParams FilterParams,
-) *distributedFilter {
-	f := &distributedFilter{
+) *DistributedFilter {
+	f := &DistributedFilter{
 		redisClient:     redisClient,
 		inMemory:        NewInMemory(filterParams),
 		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
@@ -29,11 +29,11 @@ func NewDistributedFilter(
 	return f
 }
 
-func (df *distributedFilter) setTestInterceptor(testInterceptor testInterceptor) {
+func (df *DistributedFilter) setTestInterceptor(testInterceptor testInterceptor) {
 	df.testInterceptor = testInterceptor
 }
 
-func (df *distributedFilter) Init(ctx context.Context) error {
+func (df *DistributedFilter) Init(ctx context.Context) error {
 	pubSub, listenErr := df.redisClient.Listen(ctx, df.redisBloom.cachePrefix)
 	if listenErr != nil {
 		return errors.Wrap(listenErr, "redis filter subscription failed")
@@ -47,7 +47,7 @@ func (df *distributedFilter) Init(ctx context.Context) error {
 	return df.initInMemoryFilter(ctx)
 }
 
-func (df *distributedFilter) Add(ctx context.Context, data []byte) error {
+func (df *DistributedFilter) Add(ctx context.Context, data []byte) error {
 	if addIntoRedisErr := df.redisBloom.Add(ctx, data); addIntoRedisErr != nil {
 		return addIntoRedisErr
 	}
@@ -55,43 +55,43 @@ func (df *distributedFilter) Add(ctx context.Context, data []byte) error {
 	return nil
 }
 
-func (df *distributedFilter) AddString(ctx context.Context, data string) error {
+func (df *DistributedFilter) AddString(ctx context.Context, data string) error {
 	return df.Add(ctx, []byte(data))
 }
 
-func (df *distributedFilter) AddUint16(ctx context.Context, i uint16) error {
+func (df *DistributedFilter) AddUint16(ctx context.Context, i uint16) error {
 	return df.Add(ctx, uint16ToByte(i))
 }
 
-func (df *distributedFilter) AddUint32(ctx context.Context, i uint32) error {
+func (df *DistributedFilter) AddUint32(ctx context.Context, i uint32) error {
 	return df.Add(ctx, uint32ToByte(i))
 }
 
-func (df *distributedFilter) AddUint64(ctx context.Context, i uint64) error {
+func (df *DistributedFilter) AddUint64(ctx context.Context, i uint64) error {
 	return df.Add(ctx, uint64ToByte(i))
 }
 
-func (df *distributedFilter) Test(data []byte) bool {
+func (df *DistributedFilter) Test(data []byte) bool {
 	return df.inMemory.Test(data)
 }
 
-func (df *distributedFilter) TestString(data string) bool {
+func (df *DistributedFilter) TestString(data string) bool {
 	return df.Test([]byte(data))
 }
 
-func (df *distributedFilter) TestUint16(i uint16) bool {
+func (df *DistributedFilter) TestUint16(i uint16) bool {
 	return df.Test(uint16ToByte(i))
 }
 
-func (df *distributedFilter) TestUint32(i uint32) bool {
+func (df *DistributedFilter) TestUint32(i uint32) bool {
 	return df.Test(uint32ToByte(i))
 }
 
-func (df *distributedFilter) TestUint64(i uint64) bool {
+func (df *DistributedFilter) TestUint64(i uint64) bool {
 	return df.Test(uint64ToByte(i))
 }
 
-func (df *distributedFilter) initInMemoryFilter(ctx context.Context) error {
+func (df *DistributedFilter) initInMemoryFilter(ctx context.Context) error {
 	df.testInterceptor.interfere("before-in-memory-init")
 	for bucketID := uint64(0); bucketID < uint64(df.inMemory.filterParams.BucketsCount); bucketID++ {
 		var redisFilterBuf bytes.Buffer
@@ -111,7 +111,7 @@ func (df *distributedFilter) initInMemoryFilter(ctx context.Context) error {
 	return nil
 }
 
-func (df *distributedFilter) listenForChanges(pubSub <-chan *Message) {
+func (df *DistributedFilter) listenForChanges(pubSub <-chan *Message) {
 	for message := range pubSub {
 		if message.Channel == df.redisBloom.cachePrefix {
 			df.inMemory.Add([]byte(message.Payload))
