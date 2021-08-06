@@ -37,17 +37,17 @@ func (g *goRedisClient) CheckBits(ctx context.Context, key string, offsets ...ui
 	return true, nil
 }
 
-func (g *goRedisClient) Listen(ctx context.Context, channel string) (<-chan *Message, error) {
+func (g *goRedisClient) Listen(ctx context.Context, channel string) (<-chan string, error) {
 	pubSub := g.client.Subscribe(ctx, channel)
 	// Wait for confirmation that subscription is created
 	if _, receiveErr := pubSub.Receive(ctx); receiveErr != nil {
 		return nil, receiveErr
 	}
 	redisChannel := pubSub.Channel()
-	messages := make(chan *Message, cap(redisChannel))
+	messages := make(chan string, cap(redisChannel))
 	go func() {
 		for m := range redisChannel {
-			messages <- (*Message)(m)
+			messages <- m.Payload
 		}
 		close(messages)
 	}()

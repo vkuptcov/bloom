@@ -112,10 +112,8 @@ func (df *DistributedFilter) initInMemoryFilter(ctx context.Context) error {
 	return nil
 }
 
-func (df *DistributedFilter) listenForChanges(pubSub <-chan *redisclients.Message) {
+func (df *DistributedFilter) listenForChanges(pubSub <-chan string) {
 	for message := range pubSub {
-		if message.Channel == df.redisBloom.cachePrefix {
-			df.inMemory.Add([]byte(message.Payload))
-		}
+		df.inMemory.Add([]byte(message))
 	}
 }
