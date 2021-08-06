@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/suite"
+	"github.com/vkuptcov/bloom/redisclients"
 	"syreclabs.com/go/faker"
 )
 
@@ -26,7 +27,7 @@ func (st *DistributedFilterSuite) SetupSuite() {
 
 func (st *DistributedFilterSuite) SetupTest() {
 	st.distributedFilter = NewDistributedFilter(
-		NewGoRedisClient(st.client),
+		redisclients.NewGoRedisClient(st.client),
 		"test-bloom-"+faker.RandomString(5),
 		FilterParams{
 			BucketsCount:   10,
@@ -60,7 +61,7 @@ func (st *DistributedFilterSuite) TestAdd() {
 
 	st.Run("restore filter", func() {
 		restoredFilter := NewDistributedFilter(
-			NewGoRedisClient(st.client),
+			redisclients.NewGoRedisClient(st.client),
 			st.distributedFilter.redisBloom.cachePrefix,
 			st.distributedFilter.redisBloom.filterParams,
 		)
@@ -95,7 +96,7 @@ func (st *DistributedFilterSuite) TestSeveralFiltersSync() {
 		wg.Add(1)
 		go func(shift int) {
 			filter := NewDistributedFilter(
-				NewGoRedisClient(st.client),
+				redisclients.NewGoRedisClient(st.client),
 				cachePrefix,
 				fp,
 			)

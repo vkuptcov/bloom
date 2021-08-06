@@ -8,10 +8,11 @@ import (
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/pkg/errors"
+	"github.com/vkuptcov/bloom/redisclients"
 )
 
 type redisBloom struct {
-	client      RedisClient
+	client      redisclients.RedisClient
 	cachePrefix string
 
 	filterParams FilterParams
@@ -24,7 +25,7 @@ type redisBloom struct {
 const wordSize = uint64(64)
 
 func NewRedisBloom(
-	redisClient RedisClient,
+	redisClient redisclients.RedisClient,
 	cachePrefix string,
 	filterParams FilterParams,
 ) *redisBloom {

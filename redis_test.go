@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	requireLib "github.com/stretchr/testify/require"
+	"github.com/vkuptcov/bloom/redisclients"
 	"syreclabs.com/go/faker"
 )
 
@@ -18,7 +19,7 @@ func TestRedisFilter(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	filter := NewRedisBloom(NewGoRedisClient(client), "test-bloom-"+faker.RandomString(5), FilterParams{
+	filter := NewRedisBloom(redisclients.NewGoRedisClient(client), "test-bloom-"+faker.RandomString(5), FilterParams{
 		BucketsCount:   10,
 		TotalElements:  500,
 		FalsePositives: 0.001,
@@ -51,7 +52,7 @@ func TestBloomFiltersEquality(t *testing.T) {
 		FalsePositives: falsePositives,
 	}
 
-	redisFilter := NewRedisBloom(NewGoRedisClient(client), "test-bloom-"+faker.RandomString(5), filterParams)
+	redisFilter := NewRedisBloom(redisclients.NewGoRedisClient(client), "test-bloom-"+faker.RandomString(5), filterParams)
 	inmemory := NewInMemory(filterParams)
 
 	ctx := context.Background()

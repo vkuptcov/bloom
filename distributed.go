@@ -6,17 +6,18 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/vkuptcov/bloom/redisclients"
 )
 
 type DistributedFilter struct {
-	redisClient     RedisClient
+	redisClient     redisclients.RedisClient
 	inMemory        *inMemoryBlooms
 	redisBloom      *redisBloom
 	testInterceptor testInterceptor
 }
 
 func NewDistributedFilter(
-	redisClient RedisClient,
+	redisClient redisclients.RedisClient,
 	cachePrefix string,
 	filterParams FilterParams,
 ) *DistributedFilter {
@@ -111,7 +112,7 @@ func (df *DistributedFilter) initInMemoryFilter(ctx context.Context) error {
 	return nil
 }
 
-func (df *DistributedFilter) listenForChanges(pubSub <-chan *Message) {
+func (df *DistributedFilter) listenForChanges(pubSub <-chan *redisclients.Message) {
 	for message := range pubSub {
 		if message.Channel == df.redisBloom.cachePrefix {
 			df.inMemory.Add([]byte(message.Payload))
