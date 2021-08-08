@@ -106,7 +106,10 @@ func (r *redisBloom) redisKey(data []byte) string {
 }
 
 func (r *redisBloom) redisKeyByBucket(bucketID uint64) string {
-	return r.cachePrefix + "|" + strconv.FormatUint(bucketID, 10)
+	return r.cachePrefix +
+		"|" + strconv.FormatUint(uint64(r.bitsCount), 10) +
+		"|" + strconv.FormatUint(uint64(r.hashFunctionsNumber), 10) +
+		"|" + strconv.FormatUint(bucketID, 10)
 }
 
 func redisOffset(bitNum uint64) uint64 {
