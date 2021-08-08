@@ -1,7 +1,9 @@
 package bloom
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"io"
 	"strconv"
 
@@ -27,6 +29,8 @@ const wordSize = uint64(64)
 // with internal implementations of the in-memory filer
 const dataOffset = wordSize * 3
 
+var UnexpectedHeaderValue = errors.New("Unexpected header value")
+
 func NewRedisBloom(
 	redisClient redisclients.RedisClient,
 	cachePrefix string,
@@ -44,8 +48,15 @@ func NewRedisBloom(
 
 func (r *redisBloom) Init(ctx context.Context) error {
 	pipeliner := r.client.Pipeliner(ctx)
-	for bucketID := uint32(0); bucketID < r.filterParams.BucketsCount; bucketID++ {
-		key := r.redisKeyByBucket(uint64(bucketID))
+	for bucketID := uint64(0); bucketID < uint64(r.filterParams.BucketsCount); bucketID++ {
+		headerExists, checkHeaderErr := r.checkHeader(ctx, bucketID)
+		if checkHeaderErr != nil {
+			return checkHeaderErr
+		}
+		if headerExists {
+			continue
+		}
+		key := r.redisKeyByBucket(bucketID)
 		pipeliner.BitField(
 			key,
 			// bits number for *bloom.BloomFilter
@@ -101,6 +112,46 @@ func (r *redisBloom) redisKeyByBucket(bucketID uint64) string {
 		"|" + strconv.FormatUint(uint64(r.bitsCount), 10) +
 		"|" + strconv.FormatUint(uint64(r.hashFunctionsNumber), 10) +
 		"|" + strconv.FormatUint(bucketID, 10)
+}
+
+func (r *redisBloom) checkHeader(ctx context.Context, bucketID uint64) (headerExists bool, err error) {
+	headerBytes, headerGetErr := r.client.GetRange(ctx, r.redisKeyByBucket(bucketID), 0, int64(wordSize*3))
+	if headerGetErr != nil {
+		return false, errors.Wrapf(headerGetErr, "check header failed for %d", bucketID)
+	}
+	if len(headerBytes) == 0 {
+		return false, nil
+	}
+	reader := bytes.NewReader(headerBytes)
+	var bitsCountForFilter, hashFunctionNumber, bitsCountForSet int64
+	if headReadErr := binary.Read(reader, binary.BigEndian, bitsCountForFilter); headReadErr != nil {
+		return true, errors.Wrapf(headReadErr, "bits count for filter read error for %d", bucketID)
+	}
+	if headReadErr := binary.Read(reader, binary.BigEndian, hashFunctionNumber); headReadErr != nil {
+		return true, errors.Wrapf(headReadErr, "hash functions number for filter read error for %d", bucketID)
+	}
+	if headReadErr := binary.Read(reader, binary.BigEndian, bitsCountForSet); headReadErr != nil {
+		return true, errors.Wrapf(headReadErr, "bits count for bitset read error for %d", bucketID)
+	}
+	if int64(r.bitsCount) != bitsCountForFilter {
+		return true, errors.Wrapf(
+			UnexpectedHeaderValue,
+			"unexpected bits count for filter. %d given, %d expected", bitsCountForFilter, r.bitsCount,
+		)
+	}
+	if int64(r.bitsCount) != bitsCountForSet {
+		return true, errors.Wrapf(
+			UnexpectedHeaderValue,
+			"unexpected bits count for set. %d given, %d expected", bitsCountForSet, r.bitsCount,
+		)
+	}
+	if int64(r.hashFunctionsNumber) != hashFunctionNumber {
+		return true, errors.Wrapf(
+			UnexpectedHeaderValue,
+			"unexpected hash functions number. %d given, %d expected", hashFunctionNumber, r.hashFunctionsNumber,
+		)
+	}
+	return true, nil
 }
 
 func redisOffset(bitNum uint64) uint64 {
