@@ -115,7 +115,7 @@ func (r *redisBloom) redisKeyByBucket(bucketID uint64) string {
 }
 
 func (r *redisBloom) checkHeader(ctx context.Context, bucketID uint64) (headerExists bool, err error) {
-	headerBytes, headerGetErr := r.client.GetRange(ctx, r.redisKeyByBucket(bucketID), 0, int64(wordSize*3))
+	headerBytes, headerGetErr := r.client.GetRange(ctx, r.redisKeyByBucket(bucketID), 0, int64(wordSize/8*3))
 	if headerGetErr != nil {
 		return false, errors.Wrapf(headerGetErr, "check header failed for %d", bucketID)
 	}
@@ -123,29 +123,29 @@ func (r *redisBloom) checkHeader(ctx context.Context, bucketID uint64) (headerEx
 		return false, nil
 	}
 	reader := bytes.NewReader(headerBytes)
-	var bitsCountForFilter, hashFunctionNumber, bitsCountForSet int64
-	if headReadErr := binary.Read(reader, binary.BigEndian, bitsCountForFilter); headReadErr != nil {
+	var bitsCountForFilter, hashFunctionNumber, bitsCountForSet uint64
+	if headReadErr := binary.Read(reader, binary.BigEndian, &bitsCountForFilter); headReadErr != nil {
 		return true, errors.Wrapf(headReadErr, "bits count for filter read error for %d", bucketID)
 	}
-	if headReadErr := binary.Read(reader, binary.BigEndian, hashFunctionNumber); headReadErr != nil {
+	if headReadErr := binary.Read(reader, binary.BigEndian, &hashFunctionNumber); headReadErr != nil {
 		return true, errors.Wrapf(headReadErr, "hash functions number for filter read error for %d", bucketID)
 	}
-	if headReadErr := binary.Read(reader, binary.BigEndian, bitsCountForSet); headReadErr != nil {
+	if headReadErr := binary.Read(reader, binary.BigEndian, &bitsCountForSet); headReadErr != nil {
 		return true, errors.Wrapf(headReadErr, "bits count for bitset read error for %d", bucketID)
 	}
-	if int64(r.bitsCount) != bitsCountForFilter {
+	if uint64(r.bitsCount) != bitsCountForFilter {
 		return true, errors.Wrapf(
 			UnexpectedHeaderValue,
 			"unexpected bits count for filter. %d given, %d expected", bitsCountForFilter, r.bitsCount,
 		)
 	}
-	if int64(r.bitsCount) != bitsCountForSet {
+	if uint64(r.bitsCount) != bitsCountForSet {
 		return true, errors.Wrapf(
 			UnexpectedHeaderValue,
 			"unexpected bits count for set. %d given, %d expected", bitsCountForSet, r.bitsCount,
 		)
 	}
-	if int64(r.hashFunctionsNumber) != hashFunctionNumber {
+	if uint64(r.hashFunctionsNumber) != hashFunctionNumber {
 		return true, errors.Wrapf(
 			UnexpectedHeaderValue,
 			"unexpected hash functions number. %d given, %d expected", hashFunctionNumber, r.hashFunctionsNumber,
