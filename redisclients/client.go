@@ -15,6 +15,7 @@ type RedisClient interface {
 
 type Pipeliner interface {
 	// SetBits sets bits at the specified offsets to 1
+	BitField(key string, args ...interface{}) Pipeliner
 	SetBits(key string, offsets ...uint64) Pipeliner
 	Publish(channel string, data []byte) Pipeliner
 	Exec() error

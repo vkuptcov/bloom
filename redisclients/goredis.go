@@ -66,6 +66,11 @@ type goRedisPipeliner struct {
 	pipeliner redis.Pipeliner
 }
 
+func (g *goRedisPipeliner) BitField(key string, args ...interface{}) Pipeliner {
+	g.pipeliner.BitField(g.ctx, key, args...)
+	return g
+}
+
 func (g *goRedisPipeliner) SetBits(key string, offsets ...uint64) Pipeliner {
 	bitFieldArgs := make([]interface{}, 0, len(offsets)*4)
 	for _, offset := range offsets {

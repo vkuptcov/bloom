@@ -23,6 +23,7 @@ type redisBloom struct {
 
 // the wordSize of a bit set
 const wordSize = uint64(64)
+const dataOffset = wordSize
 
 func NewRedisBloom(
 	redisClient redisclients.RedisClient,
@@ -43,7 +44,12 @@ func (r *redisBloom) Init(ctx context.Context) error {
 	pipeliner := r.client.Pipeliner(ctx)
 	for bucketID := uint32(0); bucketID < r.filterParams.BucketsCount; bucketID++ {
 		key := r.redisKeyByBucket(uint64(bucketID))
-		pipeliner.SetBits(key, ((uint64(r.bitsCount)/wordSize)+1)*wordSize+1)
+		pipeliner.BitField(
+			key,
+			"SET", "u32", "#0", uint32(r.bitsCount),
+			"SET", "u32", "#1", uint32(r.hashFunctionsNumber),
+		)
+		pipeliner.SetBits(key, dataOffset+((uint64(r.bitsCount)/wordSize)+1)*wordSize+1)
 	}
 	return errors.Wrap(pipeliner.Exec(), "Bloom filter buckets init error")
 }
@@ -82,7 +88,8 @@ func (r *redisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Wri
 	if gettingBytesErr != nil {
 		return 0, errors.Wrapf(gettingBytesErr, "getting filter data failed for bucket %d", bucketID)
 	}
-	size, writeErr := stream.Write(b[0:(len(b) - 1)])
+	dataOffsetInBytes := dataOffset / 8
+	size, writeErr := stream.Write(b[dataOffsetInBytes:(len(b) - 1)])
 	return int64(size), errors.Wrapf(writeErr, "write filter data failed for bucket %d", bucketID)
 }
 
@@ -105,5 +112,5 @@ func (r *redisBloom) redisKeyByBucket(bucketID uint64) string {
 func redisOffset(bitNum uint64) uint64 {
 	wordNum := bitNum / wordSize
 	wordShift := wordSize - (bitNum & (wordSize - 1)) - 1
-	return wordNum*wordSize + wordShift
+	return dataOffset + wordNum*wordSize + wordShift
 }
