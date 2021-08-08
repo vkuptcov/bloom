@@ -2,7 +2,6 @@ package bloom
 
 import (
 	"context"
-	"encoding/binary"
 	"io"
 	"strconv"
 
@@ -23,7 +22,10 @@ type redisBloom struct {
 
 // the wordSize of a bit set
 const wordSize = uint64(64)
-const dataOffset = wordSize
+
+// first 3 words are reserved for BloomFilter header that is compatible
+// with internal implementations of the in-memory filer
+const dataOffset = wordSize * 3
 
 func NewRedisBloom(
 	redisClient redisclients.RedisClient,
@@ -46,8 +48,12 @@ func (r *redisBloom) Init(ctx context.Context) error {
 		key := r.redisKeyByBucket(uint64(bucketID))
 		pipeliner.BitField(
 			key,
-			"SET", "u32", "#0", uint32(r.bitsCount),
-			"SET", "u32", "#1", uint32(r.hashFunctionsNumber),
+			// bits number for *bloom.BloomFilter
+			"SET", "i64", "#0", int64(r.bitsCount),
+			// hash functions count for *bloom.BloomFilter
+			"SET", "i64", "#1", int64(r.hashFunctionsNumber),
+			// bits number for *bitset.BitSet
+			"SET", "i64", "#2", int64(r.bitsCount),
 		)
 		pipeliner.SetBits(key, dataOffset+((uint64(r.bitsCount)/wordSize)+1)*wordSize+1)
 	}
@@ -70,26 +76,11 @@ func (r *redisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 }
 
 func (r *redisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
-	header := []uint{
-		// bits number for *bloom.BloomFilter
-		r.bitsCount,
-		// hash functions count for *bloom.BloomFilter
-		r.hashFunctionsNumber,
-		// bits number for *bitset.BitSet
-		r.bitsCount,
-	}
-	for _, h := range header {
-		writeHeaderErr := binary.Write(stream, binary.BigEndian, uint64(h))
-		if writeHeaderErr != nil {
-			return 0, errors.Wrapf(writeHeaderErr, "header write error for bucket %d", bucketID)
-		}
-	}
 	b, gettingBytesErr := r.client.Get(ctx, r.redisKeyByBucket(bucketID))
 	if gettingBytesErr != nil {
 		return 0, errors.Wrapf(gettingBytesErr, "getting filter data failed for bucket %d", bucketID)
 	}
-	dataOffsetInBytes := dataOffset / 8
-	size, writeErr := stream.Write(b[dataOffsetInBytes:(len(b) - 1)])
+	size, writeErr := stream.Write(b[0:(len(b) - 1)])
 	return int64(size), errors.Wrapf(writeErr, "write filter data failed for bucket %d", bucketID)
 }
 
