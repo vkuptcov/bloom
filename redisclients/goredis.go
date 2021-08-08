@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/pkg/errors"
 )
 
 type goRedisClient struct {
@@ -17,6 +18,14 @@ func NewGoRedisClient(client redis.UniversalClient) RedisClient {
 func (g *goRedisClient) Get(ctx context.Context, key string) ([]byte, error) {
 	stringCmd := g.client.Get(ctx, key)
 	return stringCmd.Bytes()
+}
+
+func (g *goRedisClient) GetRange(ctx context.Context, key string, start, end int64) ([]byte, error) {
+	cmd := g.client.GetRange(ctx, key, start, end)
+	if cmd.Err() != nil && errors.Is(cmd.Err(), redis.Nil) {
+		return nil, nil
+	}
+	return cmd.Bytes()
 }
 
 func (g *goRedisClient) CheckBits(ctx context.Context, key string, offsets ...uint64) (bool, error) {
@@ -64,6 +73,11 @@ func (g *goRedisClient) Pipeliner(ctx context.Context) Pipeliner {
 type goRedisPipeliner struct {
 	ctx       context.Context
 	pipeliner redis.Pipeliner
+}
+
+func (g *goRedisPipeliner) BitField(key string, args ...interface{}) Pipeliner {
+	g.pipeliner.BitField(g.ctx, key, args...)
+	return g
 }
 
 func (g *goRedisPipeliner) SetBits(key string, offsets ...uint64) Pipeliner {
