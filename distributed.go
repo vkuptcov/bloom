@@ -1,6 +1,7 @@
 package bloom
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/pkg/errors"
@@ -19,6 +20,7 @@ func NewDistributedFilter(
 	redisClient redisclients.RedisClient,
 	cachePrefix string,
 	filterParams FilterParams,
+	strategies ...FillFilterStrategy,
 ) *DistributedFilter {
 	f := &DistributedFilter{
 		redisClient:     redisClient,
@@ -26,9 +28,9 @@ func NewDistributedFilter(
 		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
 		testInterceptor: defaultNoOp,
 	}
-	f.fillInStrategies = []FillFilterStrategy{
+	f.fillInStrategies = append([]FillFilterStrategy{
 		&FillFilterFromRedis{df: f},
-	}
+	}, strategies...)
 	return f
 }
 
@@ -47,13 +49,7 @@ func (df *DistributedFilter) Init(ctx context.Context) error {
 		return errors.Wrap(initRedisFilterErr, "redis filter initialization failed")
 	}
 	go df.listenForChanges(pubSub)
-	df.testInterceptor.interfere("before-in-memory-init")
-	for _, fs := range df.fillInStrategies {
-		if fillErr := fs.Fill(ctx); fillErr != nil {
-			return errors.Wrap(fillErr, "in-memory filter initialization failed")
-		}
-	}
-	return nil
+	return df.loadDataFromSources(ctx)
 }
 
 func (df *DistributedFilter) Add(ctx context.Context, data []byte) error {
@@ -104,4 +100,20 @@ func (df *DistributedFilter) listenForChanges(pubSub <-chan string) {
 	for message := range pubSub {
 		df.inMemory.Add([]byte(message))
 	}
+}
+
+func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
+	df.testInterceptor.interfere("before-in-memory-init")
+	for _, fs := range df.fillInStrategies {
+		sources, fillErr := fs.Sources(ctx)
+		if fillErr != nil {
+			return errors.Wrap(fillErr, "in-memory filter initialization failed")
+		}
+		for bucketID, bucketContent := range sources {
+			if restoreErr := df.inMemory.AddFrom(bucketID, bytes.NewReader(bucketContent)); restoreErr != nil {
+				return errors.Wrap(restoreErr, "in-memory filter restore failed")
+			}
+		}
+	}
+	return nil
 }
