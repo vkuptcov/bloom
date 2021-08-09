@@ -101,7 +101,7 @@ func TestBloomFiltersEquality(t *testing.T) {
 	})
 }
 
-func checkBloomFiltersEquality(t *testing.T, redisFilter *redisBloom, inmemory *inMemoryBlooms) {
+func checkBloomFiltersEquality(t *testing.T, redisFilter *RedisBloom, inmemory *InMemoryBlooms) {
 	t.Helper()
 	ctx := context.Background()
 	falsePositives := redisFilter.filterParams.FalsePositives
