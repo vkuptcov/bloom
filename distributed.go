@@ -10,8 +10,8 @@ import (
 
 type DistributedFilter struct {
 	redisClient      redisclients.RedisClient
-	inMemory         *inMemoryBlooms
-	redisBloom       *redisBloom
+	inMemory         *InMemoryBlooms
+	redisBloom       *RedisBloom
 	testInterceptor  testInterceptor
 	fillInStrategies []FillFilterStrategy
 }

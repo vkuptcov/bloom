@@ -8,76 +8,80 @@ import (
 	"github.com/pkg/errors"
 )
 
-type inMemoryBlooms struct {
+type InMemoryBlooms struct {
 	filterParams FilterParams
 
 	filters []*bloom.BloomFilter
 	mutex   *sync.Mutex
 }
 
-func NewInMemory(filterParams FilterParams) *inMemoryBlooms {
+func NewInMemory(filterParams FilterParams) *InMemoryBlooms {
 	filters := make([]*bloom.BloomFilter, filterParams.BucketsCount)
 	bitsCount, hashFunctionsNumber := filterParams.EstimatedBucketParameters()
 	for i := uint32(0); i < filterParams.BucketsCount; i++ {
 		filters[i] = bloom.New(bitsCount, hashFunctionsNumber)
 	}
 
-	return &inMemoryBlooms{
+	return &InMemoryBlooms{
 		filterParams: filterParams,
 		filters:      filters,
 		mutex:        &sync.Mutex{},
 	}
 }
 
-func (b *inMemoryBlooms) Add(data []byte) *inMemoryBlooms {
+func (b *InMemoryBlooms) Add(data []byte) *InMemoryBlooms {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	b.underlyingFilter(data).Add(data)
 	return b
 }
 
-func (b *inMemoryBlooms) AddString(data string) *inMemoryBlooms {
+func (b *InMemoryBlooms) AddString(data string) *InMemoryBlooms {
 	return b.Add([]byte(data))
 }
 
-func (b *inMemoryBlooms) AddUint16(i uint16) *inMemoryBlooms {
+func (b *InMemoryBlooms) AddUint16(i uint16) *InMemoryBlooms {
 	return b.Add(uint16ToByte(i))
 }
 
-func (b *inMemoryBlooms) AddUint32(i uint32) *inMemoryBlooms {
+func (b *InMemoryBlooms) AddUint32(i uint32) *InMemoryBlooms {
 	return b.Add(uint32ToByte(i))
 }
 
-func (b *inMemoryBlooms) AddUint64(i uint64) *inMemoryBlooms {
+func (b *InMemoryBlooms) AddUint64(i uint64) *InMemoryBlooms {
 	return b.Add(uint64ToByte(i))
 }
 
-func (b *inMemoryBlooms) Test(data []byte) bool {
+func (b *InMemoryBlooms) Test(data []byte) bool {
 	return b.underlyingFilter(data).Test(data)
 }
 
-func (b *inMemoryBlooms) TestString(data string) bool {
+func (b *InMemoryBlooms) TestString(data string) bool {
 	return b.Test([]byte(data))
 }
 
-func (b *inMemoryBlooms) TestUint16(i uint16) bool {
+func (b *InMemoryBlooms) TestUint16(i uint16) bool {
 	return b.Test(uint16ToByte(i))
 }
 
-func (b *inMemoryBlooms) TestUint32(i uint32) bool {
+func (b *InMemoryBlooms) TestUint32(i uint32) bool {
 	return b.Test(uint32ToByte(i))
 }
 
-func (b *inMemoryBlooms) TestUint64(i uint64) bool {
+func (b *InMemoryBlooms) TestUint64(i uint64) bool {
 	return b.Test(uint64ToByte(i))
 }
 
-func (b *inMemoryBlooms) Restore(bucketID uint64, stream io.Reader) error {
+func (b *InMemoryBlooms) Restore(bucketID uint64, stream io.Reader) error {
 	_, err := b.filters[bucketID].ReadFrom(stream)
 	return err
 }
 
-func (b *inMemoryBlooms) AddFrom(bucketID uint64, stream io.Reader) error {
+func (b *InMemoryBlooms) WriteTo(bucketID uint64, stream io.Writer) (int64, error) {
+	return b.filters[bucketID].WriteTo(stream)
+}
+
+func (b *InMemoryBlooms) AddFrom(bucketID uint64, stream io.Reader) error {
 	var restored bloom.BloomFilter
 	if _, restoreErr := restored.ReadFrom(stream); restoreErr != nil {
 		return errors.Wrap(restoreErr, "filter restore error")
@@ -90,10 +94,10 @@ func (b *inMemoryBlooms) AddFrom(bucketID uint64, stream io.Reader) error {
 	return nil
 }
 
-func (b *inMemoryBlooms) BucketSize() uint32 {
+func (b *InMemoryBlooms) BucketSize() uint32 {
 	return uint32(b.filters[0].Cap())
 }
 
-func (b *inMemoryBlooms) underlyingFilter(data []byte) *bloom.BloomFilter {
+func (b *InMemoryBlooms) underlyingFilter(data []byte) *bloom.BloomFilter {
 	return b.filters[b.filterParams.BucketID(data)]
 }

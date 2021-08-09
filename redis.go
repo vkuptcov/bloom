@@ -12,7 +12,7 @@ import (
 	"github.com/vkuptcov/bloom/redisclients"
 )
 
-type redisBloom struct {
+type RedisBloom struct {
 	client      redisclients.RedisClient
 	cachePrefix string
 
@@ -35,9 +35,9 @@ func NewRedisBloom(
 	redisClient redisclients.RedisClient,
 	cachePrefix string,
 	filterParams FilterParams,
-) *redisBloom {
+) *RedisBloom {
 	bitsCount, hashFunctionsNumber := filterParams.EstimatedBucketParameters()
-	return &redisBloom{
+	return &RedisBloom{
 		client:              redisClient,
 		cachePrefix:         cachePrefix,
 		filterParams:        filterParams,
@@ -46,7 +46,7 @@ func NewRedisBloom(
 	}
 }
 
-func (r *redisBloom) Init(ctx context.Context) error {
+func (r *RedisBloom) Init(ctx context.Context) error {
 	pipeliner := r.client.Pipeliner(ctx)
 	for bucketID := uint64(0); bucketID < uint64(r.filterParams.BucketsCount); bucketID++ {
 		headerExists, checkHeaderErr := r.checkHeader(ctx, bucketID)
@@ -71,7 +71,7 @@ func (r *redisBloom) Init(ctx context.Context) error {
 	return errors.Wrap(pipeliner.Exec(), "Bloom filter buckets init error")
 }
 
-func (r *redisBloom) Add(ctx context.Context, data []byte) error {
+func (r *RedisBloom) Add(ctx context.Context, data []byte) error {
 	offsets := r.bitsOffset(data)
 	key := r.redisKey(data)
 	pipeliner := r.client.Pipeliner(ctx)
@@ -80,13 +80,13 @@ func (r *redisBloom) Add(ctx context.Context, data []byte) error {
 	return errors.Wrap(pipeliner.Exec(), "filter update in Redis failed")
 }
 
-func (r *redisBloom) Test(ctx context.Context, data []byte) (bool, error) {
+func (r *RedisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 	offsets := r.bitsOffset(data)
 	key := r.redisKey(data)
 	return r.client.CheckBits(ctx, key, offsets...)
 }
 
-func (r *redisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
+func (r *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
 	b, gettingBytesErr := r.client.Get(ctx, r.redisKeyByBucket(bucketID))
 	if gettingBytesErr != nil {
 		return 0, errors.Wrapf(gettingBytesErr, "getting filter data failed for bucket %d", bucketID)
@@ -95,7 +95,7 @@ func (r *redisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Wri
 	return int64(size), errors.Wrapf(writeErr, "write filter data failed for bucket %d", bucketID)
 }
 
-func (r *redisBloom) bitsOffset(data []byte) []uint64 {
+func (r *RedisBloom) bitsOffset(data []byte) []uint64 {
 	locations := bloom.Locations(data, r.hashFunctionsNumber)
 	for idx, l := range locations {
 		locations[idx] = redisOffset(l % uint64(r.bitsCount))
@@ -103,18 +103,18 @@ func (r *redisBloom) bitsOffset(data []byte) []uint64 {
 	return locations
 }
 
-func (r *redisBloom) redisKey(data []byte) string {
+func (r *RedisBloom) redisKey(data []byte) string {
 	return r.redisKeyByBucket(r.filterParams.BucketID(data))
 }
 
-func (r *redisBloom) redisKeyByBucket(bucketID uint64) string {
+func (r *RedisBloom) redisKeyByBucket(bucketID uint64) string {
 	return r.cachePrefix +
 		"|" + strconv.FormatUint(uint64(r.bitsCount), 10) +
 		"|" + strconv.FormatUint(uint64(r.hashFunctionsNumber), 10) +
 		"|" + strconv.FormatUint(bucketID, 10)
 }
 
-func (r *redisBloom) checkHeader(ctx context.Context, bucketID uint64) (headerExists bool, err error) {
+func (r *RedisBloom) checkHeader(ctx context.Context, bucketID uint64) (headerExists bool, err error) {
 	headerBytes, headerGetErr := r.client.GetRange(ctx, r.redisKeyByBucket(bucketID), 0, int64(wordSize/8*3))
 	if headerGetErr != nil {
 		return false, errors.Wrapf(headerGetErr, "check header failed for %d", bucketID)
