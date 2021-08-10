@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/pkg/errors"
 )
 
 type goRedisClient struct {
@@ -19,24 +18,6 @@ func NewGoRedisClient(client redis.UniversalClient) RedisClient {
 func (g *goRedisClient) Get(ctx context.Context, key string) ([]byte, error) {
 	stringCmd := g.client.Get(ctx, key)
 	return stringCmd.Bytes()
-}
-
-func (g *goRedisClient) Set(ctx context.Context, key string, data []byte, ttl time.Duration) error {
-	status := g.client.Set(ctx, key, data, ttl)
-	return status.Err()
-}
-
-func (g *goRedisClient) Del(ctx context.Context, key string) error {
-	cmd := g.client.Del(ctx, key)
-	return cmd.Err()
-}
-
-func (g *goRedisClient) GetRange(ctx context.Context, key string, start, end int64) ([]byte, error) {
-	cmd := g.client.GetRange(ctx, key, start, end)
-	if cmd.Err() != nil && errors.Is(cmd.Err(), redis.Nil) {
-		return nil, nil
-	}
-	return cmd.Bytes()
 }
 
 func (g *goRedisClient) CheckBits(ctx context.Context, key string, offsets ...uint64) (bool, error) {
@@ -55,11 +36,6 @@ func (g *goRedisClient) CheckBits(ctx context.Context, key string, offsets ...ui
 		}
 	}
 	return true, nil
-}
-
-func (g *goRedisClient) BitOpOr(ctx context.Context, dst, source string) error {
-	cmd := g.client.BitOpOr(ctx, dst, dst, source)
-	return cmd.Err()
 }
 
 func (g *goRedisClient) Listen(ctx context.Context, channel string) (<-chan string, error) {
