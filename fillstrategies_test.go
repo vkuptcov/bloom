@@ -51,6 +51,10 @@ func TestDistributedFilterSuite(t *testing.T) {
 
 type testFillStrategy struct{}
 
+func (s *testFillStrategy) DumpStateInRedis() bool {
+	return true
+}
+
 func (s *testFillStrategy) Sources(ctx context.Context) (map[uint64][]byte, error) {
 	f := bloom.NewInMemory(filterParams)
 	for i := uint16(0); i < 50; i++ {

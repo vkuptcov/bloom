@@ -8,21 +8,22 @@ import (
 	"github.com/pkg/errors"
 )
 
-type FillFilterStrategy interface {
+type BulkDataLoader interface {
 	// Sources returns a map of bucketIDs to a bytes slice
 	Sources(ctx context.Context) (map[uint64][]byte, error)
+	DumpStateInRedis() bool
 }
 
-type FillFilterFromRedis struct {
-	df *DistributedFilter
+type BulkLoaderFromRedis struct {
+	redisBloom *RedisBloom
 }
 
-func (s *FillFilterFromRedis) Sources(ctx context.Context) (map[uint64][]byte, error) {
-	sources := make(map[uint64][]byte, s.df.inMemory.filterParams.BucketsCount)
-	for bucketID := uint64(0); bucketID < uint64(s.df.inMemory.filterParams.BucketsCount); bucketID++ {
+func (s *BulkLoaderFromRedis) Sources(ctx context.Context) (map[uint64][]byte, error) {
+	sources := make(map[uint64][]byte, s.redisBloom.filterParams.BucketsCount)
+	for bucketID := uint64(0); bucketID < uint64(s.redisBloom.filterParams.BucketsCount); bucketID++ {
 		var redisFilterBuf bytes.Buffer
 		writer := bufio.NewWriter(&redisFilterBuf)
-		if _, redisBloomWriteErr := s.df.redisBloom.WriteTo(ctx, bucketID, writer); redisBloomWriteErr != nil {
+		if _, redisBloomWriteErr := s.redisBloom.WriteTo(ctx, bucketID, writer); redisBloomWriteErr != nil {
 			return nil, errors.Wrap(redisBloomWriteErr, "bloom filter load from Redis failed")
 		}
 
@@ -32,4 +33,8 @@ func (s *FillFilterFromRedis) Sources(ctx context.Context) (map[uint64][]byte, e
 		sources[bucketID] = redisFilterBuf.Bytes()
 	}
 	return sources, nil
+}
+
+func (s *BulkLoaderFromRedis) DumpStateInRedis() bool {
+	return false
 }

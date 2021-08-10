@@ -3,33 +3,38 @@ package bloom
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/vkuptcov/bloom/redisclients"
 )
 
 type DistributedFilter struct {
-	redisClient      redisclients.RedisClient
-	inMemory         *InMemoryBlooms
-	redisBloom       *RedisBloom
-	testInterceptor  testInterceptor
-	fillInStrategies []FillFilterStrategy
+	redisClient                   redisclients.RedisClient
+	inMemory                      *InMemoryBlooms
+	redisBloom                    *RedisBloom
+	testInterceptor               testInterceptor
+	fillInStrategies              []BulkDataLoader
+	checkRedisConsistencyInterval time.Duration
+	logger                        Logger
 }
 
 func NewDistributedFilter(
 	redisClient redisclients.RedisClient,
 	cachePrefix string,
 	filterParams FilterParams,
-	strategies ...FillFilterStrategy,
+	strategies ...BulkDataLoader,
 ) *DistributedFilter {
 	f := &DistributedFilter{
-		redisClient:     redisClient,
-		inMemory:        NewInMemory(filterParams),
-		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
-		testInterceptor: defaultNoOp,
+		redisClient:                   redisClient,
+		inMemory:                      NewInMemory(filterParams),
+		redisBloom:                    NewRedisBloom(redisClient, cachePrefix, filterParams),
+		testInterceptor:               defaultNoOp,
+		checkRedisConsistencyInterval: 5 * time.Minute,
+		logger:                        StdLogger(nil),
 	}
-	f.fillInStrategies = append([]FillFilterStrategy{
-		&FillFilterFromRedis{df: f},
+	f.fillInStrategies = append([]BulkDataLoader{
+		&BulkLoaderFromRedis{redisBloom: f.redisBloom},
 	}, strategies...)
 	return f
 }
@@ -113,7 +118,20 @@ func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 			if restoreErr := df.inMemory.AddFrom(bucketID, bytes.NewReader(bucketContent)); restoreErr != nil {
 				return errors.Wrap(restoreErr, "in-memory filter restore failed")
 			}
+			if fs.DumpStateInRedis() {
+				if dumpErr := df.dumpStateInRedis(ctx, bucketID); dumpErr != nil {
+					return errors.Wrap(dumpErr, "redis dump filter failed")
+				}
+			}
 		}
 	}
 	return nil
+}
+
+func (df *DistributedFilter) dumpStateInRedis(ctx context.Context, bucketID uint64) error {
+	var buf bytes.Buffer
+	if _, writeBufferErr := df.inMemory.WriteTo(bucketID, &buf); writeBufferErr != nil {
+		return errors.Wrapf(writeBufferErr, "in-memory filter serialzation failed for bucket %d", bucketID)
+	}
+	return df.redisBloom.MergeWith(ctx, bucketID, &buf)
 }
