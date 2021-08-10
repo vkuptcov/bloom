@@ -71,3 +71,7 @@ func (s *testFillStrategy) Sources(ctx context.Context, df *bloom.DistributedFil
 	}
 	return sources, nil
 }
+
+func (s *testFillStrategy) NeedRunNextLoader(ctx context.Context, df *bloom.DistributedFilter) (bool, error) {
+	return true, nil
+}

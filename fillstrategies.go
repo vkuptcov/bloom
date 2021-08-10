@@ -14,6 +14,7 @@ type BulkDataLoader interface {
 	// Sources returns a map of bucketIDs to a bytes slice
 	Sources(ctx context.Context, df *DistributedFilter) (map[uint64][]byte, error)
 	DumpStateInRedis() bool
+	NeedRunNextLoader(ctx context.Context, df *DistributedFilter) (bool, error)
 }
 
 type BulkLoaderFromRedis struct{}
@@ -38,6 +39,20 @@ func (s *BulkLoaderFromRedis) Sources(ctx context.Context, df *DistributedFilter
 
 func (s *BulkLoaderFromRedis) DumpStateInRedis() bool {
 	return false
+}
+
+func (s *BulkLoaderFromRedis) NeedRunNextLoader(ctx context.Context, df *DistributedFilter) (bool, error) {
+	redisBloom := df.redisBloom
+	for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
+		inited, checkErr := redisBloom.checkRedisFilterState(ctx, bucketID)
+		if checkErr != nil {
+			return false, checkErr
+		}
+		if !inited {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type RawDataLoader struct {
