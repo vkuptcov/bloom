@@ -17,6 +17,7 @@ type DistributedFilter struct {
 	fillInStrategies              []BulkDataLoader
 	checkRedisConsistencyInterval time.Duration
 	logger                        Logger
+	initializationFinished        bool
 }
 
 func NewDistributedFilter(
@@ -26,16 +27,16 @@ func NewDistributedFilter(
 	strategies ...BulkDataLoader,
 ) *DistributedFilter {
 	f := &DistributedFilter{
-		redisClient:                   redisClient,
-		inMemory:                      NewInMemory(filterParams),
-		redisBloom:                    NewRedisBloom(redisClient, cachePrefix, filterParams),
-		testInterceptor:               defaultNoOp,
+		redisClient:     redisClient,
+		inMemory:        NewInMemory(filterParams),
+		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
+		testInterceptor: defaultNoOp,
+		fillInStrategies: append([]BulkDataLoader{
+			&BulkLoaderFromRedis{},
+		}, strategies...),
 		checkRedisConsistencyInterval: 5 * time.Minute,
 		logger:                        StdLogger(nil),
 	}
-	f.fillInStrategies = append([]BulkDataLoader{
-		&BulkLoaderFromRedis{redisBloom: f.redisBloom},
-	}, strategies...)
 	return f
 }
 
@@ -110,7 +111,7 @@ func (df *DistributedFilter) listenForChanges(pubSub <-chan string) {
 func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 	df.testInterceptor.interfere("before-in-memory-init")
 	for _, fs := range df.fillInStrategies {
-		sources, fillErr := fs.Sources(ctx)
+		sources, fillErr := fs.Sources(ctx, df)
 		if fillErr != nil {
 			return errors.Wrap(fillErr, "in-memory filter initialization failed")
 		}
@@ -125,6 +126,7 @@ func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 			}
 		}
 	}
+	df.initializationFinished = true
 	return nil
 }
 

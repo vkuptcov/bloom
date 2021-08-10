@@ -8,22 +8,23 @@ import (
 	"github.com/pkg/errors"
 )
 
+var UnsupportedDataTypeErr = errors.New("unsupported data type")
+
 type BulkDataLoader interface {
 	// Sources returns a map of bucketIDs to a bytes slice
-	Sources(ctx context.Context) (map[uint64][]byte, error)
+	Sources(ctx context.Context, df *DistributedFilter) (map[uint64][]byte, error)
 	DumpStateInRedis() bool
 }
 
-type BulkLoaderFromRedis struct {
-	redisBloom *RedisBloom
-}
+type BulkLoaderFromRedis struct{}
 
-func (s *BulkLoaderFromRedis) Sources(ctx context.Context) (map[uint64][]byte, error) {
-	sources := make(map[uint64][]byte, s.redisBloom.filterParams.BucketsCount)
-	for bucketID := uint64(0); bucketID < uint64(s.redisBloom.filterParams.BucketsCount); bucketID++ {
+func (s *BulkLoaderFromRedis) Sources(ctx context.Context, df *DistributedFilter) (map[uint64][]byte, error) {
+	redisBloom := df.redisBloom
+	sources := make(map[uint64][]byte, redisBloom.filterParams.BucketsCount)
+	for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
 		var redisFilterBuf bytes.Buffer
 		writer := bufio.NewWriter(&redisFilterBuf)
-		if _, redisBloomWriteErr := s.redisBloom.WriteTo(ctx, bucketID, writer); redisBloomWriteErr != nil {
+		if _, redisBloomWriteErr := redisBloom.WriteTo(ctx, bucketID, writer); redisBloomWriteErr != nil {
 			return nil, errors.Wrap(redisBloomWriteErr, "bloom filter load from Redis failed")
 		}
 
@@ -37,4 +38,37 @@ func (s *BulkLoaderFromRedis) Sources(ctx context.Context) (map[uint64][]byte, e
 
 func (s *BulkLoaderFromRedis) DumpStateInRedis() bool {
 	return false
+}
+
+type RawDataLoader struct {
+	dataChannelCreator func() <-chan interface{}
+}
+
+func NewRawDataInMemoryLoader(dataChannelCreator func() <-chan interface{}) *RawDataLoader {
+	return &RawDataLoader{dataChannelCreator: dataChannelCreator}
+}
+
+func (s *RawDataLoader) Sources(_ context.Context, df *DistributedFilter) (map[uint64][]byte, error) {
+	dataCh := s.dataChannelCreator()
+	for data := range dataCh {
+		switch d := data.(type) {
+		case string:
+			df.inMemory.AddString(d)
+		case []byte:
+			df.inMemory.Add(d)
+		case uint16:
+			df.inMemory.AddUint16(d)
+		case uint32:
+			df.inMemory.AddUint32(d)
+		case uint64:
+			df.inMemory.AddUint64(d)
+		default:
+			return nil, errors.Wrapf(UnsupportedDataTypeErr, "unsupported data type in channel: %T", d)
+		}
+	}
+	return map[uint64][]byte{}, nil
+}
+
+func (s *RawDataLoader) DumpStateInRedis() bool {
+	return true
 }

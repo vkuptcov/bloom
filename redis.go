@@ -29,7 +29,7 @@ const wordSize = uint64(64)
 // with internal implementations of the in-memory filer
 const dataOffset = wordSize * 3
 
-var UnexpectedHeaderValue = errors.New("Unexpected header value")
+var UnexpectedHeaderValueErr = errors.New("unexpected header value")
 
 func NewRedisBloom(
 	redisClient redisclients.RedisClient,
@@ -149,19 +149,19 @@ func (r *RedisBloom) checkHeader(data []byte) error {
 	}
 	if uint64(r.bitsCount) != bitsCountForFilter {
 		return errors.Wrapf(
-			UnexpectedHeaderValue,
+			UnexpectedHeaderValueErr,
 			"unexpected bits count for filter. %d given, %d expected", bitsCountForFilter, r.bitsCount,
 		)
 	}
 	if uint64(r.bitsCount) != bitsCountForSet {
 		return errors.Wrapf(
-			UnexpectedHeaderValue,
+			UnexpectedHeaderValueErr,
 			"unexpected bits count for set. %d given, %d expected", bitsCountForSet, r.bitsCount,
 		)
 	}
 	if uint64(r.hashFunctionsNumber) != hashFunctionNumber {
 		return errors.Wrapf(
-			UnexpectedHeaderValue,
+			UnexpectedHeaderValueErr,
 			"unexpected hash functions number. %d given, %d expected", hashFunctionNumber, r.hashFunctionsNumber,
 		)
 	}
