@@ -5,54 +5,64 @@ import (
 	"bytes"
 	"context"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 )
 
 var UnsupportedDataTypeErr = errors.New("unsupported data type")
 
-type BulkDataLoader interface {
-	// Sources returns a map of bucketIDs to a bytes slice
-	Sources(ctx context.Context, df *DistributedFilter) (map[uint64][]byte, error)
-	DumpStateInRedis() bool
-	NeedRunNextLoader(ctx context.Context, df *DistributedFilter) (bool, error)
+type DataLoaderResults struct {
+	SourcesPerBucket  map[uint64][]byte
+	DumpStateInRedis  bool
+	NeedRunNextLoader bool
 }
 
-type BulkLoaderFromRedis struct{}
+func DefaultResults() DataLoaderResults {
+	return DataLoaderResults{
+		SourcesPerBucket: map[uint64][]byte{},
+	}
+}
 
-func (s *BulkLoaderFromRedis) Sources(ctx context.Context, df *DistributedFilter) (map[uint64][]byte, error) {
+type DataLoader func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error)
+
+var BulkLoaderFromRedis DataLoader = func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error) {
 	redisBloom := df.redisBloom
-	sources := make(map[uint64][]byte, redisBloom.filterParams.BucketsCount)
+	var errorsBatch *multierror.Error
+	results := DefaultResults()
+	results.NeedRunNextLoader = false
+
 	for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
 		var redisFilterBuf bytes.Buffer
 		writer := bufio.NewWriter(&redisFilterBuf)
 		if _, redisBloomWriteErr := redisBloom.WriteTo(ctx, bucketID, writer); redisBloomWriteErr != nil {
-			return nil, errors.Wrap(redisBloomWriteErr, "bloom filter load from Redis failed")
+			errorsBatch = multierror.Append(
+				errorsBatch,
+				errors.Wrap(redisBloomWriteErr, "bloom filter load from Redis failed"),
+			)
+			continue
 		}
 
 		if flushErr := writer.Flush(); flushErr != nil {
-			return nil, errors.Wrap(flushErr, "bloom filter flush failed")
+			errorsBatch = multierror.Append(
+				errorsBatch,
+				errors.Wrap(flushErr, "bloom filter flush failed"),
+			)
+			continue
 		}
-		sources[bucketID] = redisFilterBuf.Bytes()
-	}
-	return sources, nil
-}
-
-func (s *BulkLoaderFromRedis) DumpStateInRedis() bool {
-	return false
-}
-
-func (s *BulkLoaderFromRedis) NeedRunNextLoader(ctx context.Context, df *DistributedFilter) (bool, error) {
-	redisBloom := df.redisBloom
-	for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
+		results.SourcesPerBucket[bucketID] = redisFilterBuf.Bytes()
 		inited, checkErr := redisBloom.checkRedisFilterState(ctx, bucketID)
 		if checkErr != nil {
-			return false, checkErr
+			errorsBatch = multierror.Append(
+				errorsBatch,
+				errors.Wrap(checkErr, "bloom filter init state check error"),
+			)
+			continue
 		}
 		if !inited {
-			return true, nil
+			results.NeedRunNextLoader = true
 		}
 	}
-	return false, nil
+	return results, errorsBatch.ErrorOrNil()
 }
 
 type RawDataLoader struct {

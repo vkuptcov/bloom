@@ -34,7 +34,7 @@ func (st *FillStrategiesSuite) TestCustomFillStrategy() {
 		redisclients.NewGoRedisClient(st.client),
 		"test-bloom-"+faker.RandomString(5),
 		filterParams,
-		&testFillStrategy{},
+		testSource,
 	)
 	st.Require().NoError(
 		distributedFilter.Init(context.Background()),
@@ -49,29 +49,19 @@ func TestDistributedFilterSuite(t *testing.T) {
 	suite.Run(t, &FillStrategiesSuite{})
 }
 
-type testFillStrategy struct{}
-
-func (s *testFillStrategy) DumpStateInRedis() bool {
-	return true
-}
-
-func (s *testFillStrategy) Sources(ctx context.Context, df *bloom.DistributedFilter) (map[uint64][]byte, error) {
+func testSource(ctx context.Context, df *bloom.DistributedFilter) (bloom.DataLoaderResults, error) {
+	results := bloom.DefaultResults()
 	f := bloom.NewInMemory(filterParams)
 	for i := uint16(0); i < 50; i++ {
 		f.AddUint16(i)
 	}
-	sources := map[uint64][]byte{}
 	for bucketID := uint64(0); bucketID < uint64(filterParams.BucketsCount); bucketID++ {
 		var buf bytes.Buffer
 		_, err := f.WriteTo(bucketID, &buf)
 		if err != nil {
-			return nil, err
+			return results, err
 		}
-		sources[bucketID] = buf.Bytes()
+		results.SourcesPerBucket[bucketID] = buf.Bytes()
 	}
-	return sources, nil
-}
-
-func (s *testFillStrategy) NeedRunNextLoader(ctx context.Context, df *bloom.DistributedFilter) (bool, error) {
-	return true, nil
+	return results, nil
 }

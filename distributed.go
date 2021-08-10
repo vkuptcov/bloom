@@ -5,6 +5,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	"github.com/vkuptcov/bloom/redisclients"
 )
@@ -14,7 +15,7 @@ type DistributedFilter struct {
 	inMemory                      *InMemoryBlooms
 	redisBloom                    *RedisBloom
 	testInterceptor               testInterceptor
-	fillInStrategies              []BulkDataLoader
+	fillInStrategies              []DataLoader
 	checkRedisConsistencyInterval time.Duration
 	logger                        Logger
 	initializationFinished        bool
@@ -24,15 +25,15 @@ func NewDistributedFilter(
 	redisClient redisclients.RedisClient,
 	cachePrefix string,
 	filterParams FilterParams,
-	strategies ...BulkDataLoader,
+	strategies ...DataLoader,
 ) *DistributedFilter {
 	f := &DistributedFilter{
 		redisClient:     redisClient,
 		inMemory:        NewInMemory(filterParams),
 		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
 		testInterceptor: defaultNoOp,
-		fillInStrategies: append([]BulkDataLoader{
-			&BulkLoaderFromRedis{},
+		fillInStrategies: append([]DataLoader{
+			BulkLoaderFromRedis,
 		}, strategies...),
 		checkRedisConsistencyInterval: 5 * time.Minute,
 		logger:                        StdLogger(nil),
@@ -111,23 +112,36 @@ func (df *DistributedFilter) listenForChanges(pubSub <-chan string) {
 func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 	df.testInterceptor.interfere("before-in-memory-init")
 	for _, fs := range df.fillInStrategies {
-		sources, fillErr := fs.Sources(ctx, df)
-		if fillErr != nil {
-			return errors.Wrap(fillErr, "in-memory filter initialization failed")
+		if df.initializationFinished {
+			break
 		}
-		for bucketID, bucketContent := range sources {
-			if restoreErr := df.inMemory.AddFrom(bucketID, bytes.NewReader(bucketContent)); restoreErr != nil {
-				return errors.Wrap(restoreErr, "in-memory filter restore failed")
-			}
-			if fs.DumpStateInRedis() {
-				if dumpErr := df.dumpStateInRedis(ctx, bucketID); dumpErr != nil {
-					return errors.Wrap(dumpErr, "redis dump filter failed")
-				}
-			}
+		results, dataLoaderErr := fs(ctx, df)
+		// if we have at least one bucket loaded it's better than nothing
+		handleResultErr := df.handleDataLoadResults(ctx, results)
+		if handleResultErr != nil || dataLoaderErr != nil {
+			return multierror.Append(dataLoaderErr, handleResultErr)
 		}
 	}
 	df.initializationFinished = true
 	return nil
+}
+
+func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results DataLoaderResults) error {
+	var errorsBatch *multierror.Error
+	if len(results.SourcesPerBucket) > 0 {
+		for bucketID, bucketContent := range results.SourcesPerBucket {
+			if restoreErr := df.inMemory.AddFrom(bucketID, bytes.NewReader(bucketContent)); restoreErr != nil {
+				errorsBatch = multierror.Append(errorsBatch, errors.Wrap(restoreErr, "in-memory filter restore failed"))
+				continue
+			}
+			if results.DumpStateInRedis {
+				if dumpErr := df.dumpStateInRedis(ctx, bucketID); dumpErr != nil {
+					errorsBatch = multierror.Append(errorsBatch, errors.Wrap(dumpErr, "redis dump filter failed"))
+				}
+			}
+		}
+	}
+	return errorsBatch.ErrorOrNil()
 }
 
 func (df *DistributedFilter) dumpStateInRedis(ctx context.Context, bucketID uint64) error {
