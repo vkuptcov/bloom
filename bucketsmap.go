@@ -1,3 +1,4 @@
+//nolint:unused // keep it for next iterations
 package bloom
 
 import (
