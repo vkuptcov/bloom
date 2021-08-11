@@ -12,13 +12,13 @@ import (
 
 type DistributedFilter struct {
 	redisClient                   redisclients.RedisClient
+	filterParams                  FilterParams
 	inMemory                      *InMemoryBlooms
 	redisBloom                    *RedisBloom
 	testInterceptor               testInterceptor
 	fillInStrategies              []DataLoader
 	checkRedisConsistencyInterval time.Duration
 	logger                        Logger
-	initializationFinished        bool
 }
 
 func NewDistributedFilter(
@@ -29,6 +29,7 @@ func NewDistributedFilter(
 ) *DistributedFilter {
 	f := &DistributedFilter{
 		redisClient:     redisClient,
+		filterParams:    filterParams,
 		inMemory:        NewInMemory(filterParams),
 		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
 		testInterceptor: defaultNoOp,
@@ -112,17 +113,16 @@ func (df *DistributedFilter) listenForChanges(pubSub <-chan string) {
 func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 	df.testInterceptor.interfere("before-in-memory-init")
 	for _, fs := range df.fillInStrategies {
-		if df.initializationFinished {
-			break
-		}
 		results, dataLoaderErr := fs(ctx, df)
 		// if we have at least one bucket loaded it's better than nothing
 		handleResultErr := df.handleDataLoadResults(ctx, results)
 		if handleResultErr != nil || dataLoaderErr != nil {
 			return multierror.Append(dataLoaderErr, handleResultErr)
 		}
+		if !results.NeedRunNextLoader {
+			break
+		}
 	}
-	df.initializationFinished = true
 	return nil
 }
 

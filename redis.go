@@ -50,18 +50,8 @@ func (r *RedisBloom) Init(ctx context.Context) error {
 	pipeliner := r.client.Pipeliner(ctx)
 	for bucketID := uint64(0); bucketID < uint64(r.filterParams.BucketsCount); bucketID++ {
 		key := r.redisKeyByBucket(bucketID)
-		// write header
-		pipeliner.BitField(
-			key,
-			// bits number for *bloom.BloomFilter
-			"SET", "i64", "#0", int64(r.bitsCount),
-			// hash functions count for *bloom.BloomFilter
-			"SET", "i64", "#1", int64(r.hashFunctionsNumber),
-			// bits number for *bitset.BitSet
-			"SET", "i64", "#2", int64(r.bitsCount),
-		)
-		// ensure the size
-		pipeliner.SetBits(key, r.maxLenWithHeader()+wordSize)
+		r.writeHeader(pipeliner, key)
+		r.ensureFilterSize(pipeliner, key)
 	}
 	return errors.Wrap(pipeliner.Exec(), "Bloom filter buckets init error")
 }
@@ -103,7 +93,25 @@ func (r *RedisBloom) MergeWith(ctx context.Context, bucketID uint64, buf *bytes.
 		BitOpOr(dstKey, tmpKey).
 		SetBits(dstKey, r.maxLenWithHeader()+1).
 		Del(tmpKey)
+	r.writeHeader(pipeliner, dstKey)
+	r.ensureFilterSize(pipeliner, dstKey)
 	return pipeliner.Exec()
+}
+
+func (r *RedisBloom) writeHeader(pipeliner redisclients.Pipeliner, key string) {
+	pipeliner.BitField(
+		key,
+		// bits number for *bloom.BloomFilter
+		"SET", "i64", "#0", int64(r.bitsCount),
+		// hash functions count for *bloom.BloomFilter
+		"SET", "i64", "#1", int64(r.hashFunctionsNumber),
+		// bits number for *bitset.BitSet
+		"SET", "i64", "#2", int64(r.bitsCount),
+	)
+}
+
+func (r *RedisBloom) ensureFilterSize(pipeliner redisclients.Pipeliner, key string) {
+	pipeliner.SetBits(key, r.maxLenWithHeader()+wordSize)
 }
 
 func (r *RedisBloom) bitsOffset(data []byte) []uint64 {
