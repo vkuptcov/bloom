@@ -65,35 +65,25 @@ var BulkLoaderFromRedis DataLoader = func(ctx context.Context, df *DistributedFi
 	return results, errorsBatch.ErrorOrNil()
 }
 
-type RawDataLoader struct {
-	dataChannelCreator func() <-chan interface{}
-}
-
-func NewRawDataInMemoryLoader(dataChannelCreator func() <-chan interface{}) *RawDataLoader {
-	return &RawDataLoader{dataChannelCreator: dataChannelCreator}
-}
-
-func (s *RawDataLoader) Sources(_ context.Context, df *DistributedFilter) (map[uint64][]byte, error) {
-	dataCh := s.dataChannelCreator()
-	for data := range dataCh {
-		switch d := data.(type) {
-		case string:
-			df.inMemory.AddString(d)
-		case []byte:
-			df.inMemory.Add(d)
-		case uint16:
-			df.inMemory.AddUint16(d)
-		case uint32:
-			df.inMemory.AddUint32(d)
-		case uint64:
-			df.inMemory.AddUint64(d)
-		default:
-			return nil, errors.Wrapf(UnsupportedDataTypeErr, "unsupported data type in channel: %T", d)
+func NewRawDataInMemoryLoader(dataChannelCreator func() <-chan interface{}, initialResults DataLoaderResults) DataLoader {
+	return func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error) {
+		dataCh := dataChannelCreator()
+		for data := range dataCh {
+			switch d := data.(type) {
+			case string:
+				df.inMemory.AddString(d)
+			case []byte:
+				df.inMemory.Add(d)
+			case uint16:
+				df.inMemory.AddUint16(d)
+			case uint32:
+				df.inMemory.AddUint32(d)
+			case uint64:
+				df.inMemory.AddUint64(d)
+			default:
+				return initialResults, errors.Wrapf(UnsupportedDataTypeErr, "unsupported data type in channel: %T", d)
+			}
 		}
+		return initialResults, nil
 	}
-	return map[uint64][]byte{}, nil
-}
-
-func (s *RawDataLoader) DumpStateInRedis() bool {
-	return true
 }
