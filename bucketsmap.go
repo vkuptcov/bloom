@@ -1,4 +1,3 @@
-//nolint:unused // keep it for next iterations
 package bloom
 
 import (
@@ -10,6 +9,7 @@ type initializedBuckets struct {
 	rwm     sync.RWMutex
 }
 
+//nolint:unused // keep it for next iterations
 func (b *initializedBuckets) isInitialized(bucketID uint32) bool {
 	b.rwm.RLock()
 	defer b.rwm.RUnlock()
@@ -26,6 +26,7 @@ func (b *initializedBuckets) initialize(bucketID uint32) {
 	b.buckets[bucketID] = struct{}{}
 }
 
+//nolint:unused // keep it for next iterations
 func (b *initializedBuckets) deinitialize(bucketID uint32) {
 	b.rwm.Lock()
 	defer b.rwm.Unlock()

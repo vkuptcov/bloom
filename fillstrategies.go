@@ -26,6 +26,30 @@ func DefaultResults() DataLoaderResults {
 
 type DataLoader func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error)
 
+var RedisStateCheck DataLoader = func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error) {
+	redisBloom := df.redisBloom
+	var errorsBatch *multierror.Error
+	results := DefaultResults()
+	results.NeedRunNextLoader = false
+	for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
+		inited, checkErr := redisBloom.checkRedisFilterState(ctx, bucketID)
+		if checkErr != nil {
+			errorsBatch = multierror.Append(
+				errorsBatch,
+				errors.Wrap(checkErr, "bloom filter init state check error"),
+			)
+			continue
+		}
+		if !inited {
+			results.NeedRunNextLoader = true
+		}
+	}
+	if df.initializedBuckets.len() != int(df.FilterParams.BucketsCount) {
+		results.NeedRunNextLoader = true
+	}
+	return results, errorsBatch.ErrorOrNil()
+}
+
 var BulkLoaderFromRedis DataLoader = func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error) {
 	redisBloom := df.redisBloom
 	var errorsBatch *multierror.Error
@@ -61,6 +85,8 @@ var BulkLoaderFromRedis DataLoader = func(ctx context.Context, df *DistributedFi
 		}
 		if !inited {
 			results.NeedRunNextLoader = true
+		} else {
+			results.FinalizeFilter = true
 		}
 	}
 	return results, errorsBatch.ErrorOrNil()

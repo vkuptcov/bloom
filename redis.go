@@ -95,7 +95,7 @@ func (r *RedisBloom) MergeWith(ctx context.Context, bucketID uint64, addFinalBit
 	r.writeHeader(pipeliner, dstKey)
 	r.ensureFilterSize(pipeliner, dstKey)
 	if addFinalBit {
-		pipeliner.SetBits(dstKey, r.maxLenWithHeader()+1)
+		r.finalizeInitState(pipeliner, dstKey)
 	}
 	return pipeliner.Exec()
 }
@@ -139,10 +139,20 @@ func (r *RedisBloom) redisKeyByBucket(bucketID uint64) string {
 		"|" + strconv.FormatUint(bucketID, 10)
 }
 
-//nolint:unused // we need it later
+func (r *RedisBloom) initializeFilter(ctx context.Context, bucketID uint64) (err error) {
+	key := r.redisKeyByBucket(bucketID)
+	p := r.client.Pipeliner(ctx)
+	r.finalizeInitState(p, key)
+	return p.Exec()
+}
+
 func (r *RedisBloom) checkRedisFilterState(ctx context.Context, bucketID uint64) (isInitialized bool, err error) {
 	key := r.redisKeyByBucket(bucketID)
 	return r.client.CheckBits(ctx, key, r.maxLenWithHeader()+1)
+}
+
+func (r *RedisBloom) finalizeInitState(pipeliner redisclients.Pipeliner, dstKey string) redisclients.Pipeliner {
+	return pipeliner.SetBits(dstKey, r.maxLenWithHeader()+1)
 }
 
 func (r *RedisBloom) checkHeader(data []byte) error {

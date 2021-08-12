@@ -20,6 +20,7 @@ type DistributedFilter struct {
 	testInterceptor               testInterceptor
 	fillInStrategies              []DataLoader
 	checkRedisConsistencyInterval time.Duration
+	initializedBuckets            *initializedBuckets
 	logger                        Logger
 }
 
@@ -37,9 +38,11 @@ func NewDistributedFilter(
 		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
 		testInterceptor: defaultNoOp,
 		fillInStrategies: append([]DataLoader{
+			RedisStateCheck,
 			BulkLoaderFromRedis,
 		}, strategies...),
 		checkRedisConsistencyInterval: 5 * time.Minute,
+		initializedBuckets:            &initializedBuckets{},
 		logger:                        StdLogger(nil),
 	}
 	return f
@@ -160,6 +163,15 @@ func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results 
 				if dumpErr := df.dumpStateInRedis(ctx, bucketID, results.FinalizeFilter); dumpErr != nil {
 					errorsBatch = multierror.Append(errorsBatch, errors.Wrap(dumpErr, "redis dump filter failed"))
 				}
+			}
+		}
+	}
+	if results.FinalizeFilter && errorsBatch.ErrorOrNil() == nil {
+		for bucketID := uint32(0); bucketID < df.FilterParams.BucketsCount; bucketID++ {
+			df.initializedBuckets.initialize(bucketID)
+			initializationErr := df.redisBloom.initializeFilter(ctx, uint64(bucketID))
+			if initializationErr != nil {
+				errorsBatch = multierror.Append(errorsBatch, errors.Wrap(initializationErr, "redis initialization filter failed"))
 			}
 		}
 	}
