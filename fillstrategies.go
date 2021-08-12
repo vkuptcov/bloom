@@ -15,6 +15,7 @@ type DataLoaderResults struct {
 	SourcesPerBucket  map[uint64][]byte
 	DumpStateInRedis  bool
 	NeedRunNextLoader bool
+	FinalizeFilter    bool
 }
 
 func DefaultResults() DataLoaderResults {

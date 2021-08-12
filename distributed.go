@@ -157,7 +157,7 @@ func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results 
 				continue
 			}
 			if results.DumpStateInRedis {
-				if dumpErr := df.dumpStateInRedis(ctx, bucketID); dumpErr != nil {
+				if dumpErr := df.dumpStateInRedis(ctx, bucketID, results.FinalizeFilter); dumpErr != nil {
 					errorsBatch = multierror.Append(errorsBatch, errors.Wrap(dumpErr, "redis dump filter failed"))
 				}
 			}
@@ -166,10 +166,10 @@ func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results 
 	return errorsBatch.ErrorOrNil()
 }
 
-func (df *DistributedFilter) dumpStateInRedis(ctx context.Context, bucketID uint64) error {
+func (df *DistributedFilter) dumpStateInRedis(ctx context.Context, bucketID uint64, addFinalBit bool) error {
 	var buf bytes.Buffer
 	if _, writeBufferErr := df.inMemory.WriteTo(bucketID, &buf); writeBufferErr != nil {
 		return errors.Wrapf(writeBufferErr, "in-memory filter serialzation failed for bucket %d", bucketID)
 	}
-	return df.redisBloom.MergeWith(ctx, bucketID, &buf)
+	return df.redisBloom.MergeWith(ctx, bucketID, addFinalBit, &buf)
 }

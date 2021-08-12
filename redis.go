@@ -81,7 +81,7 @@ func (r *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Wri
 }
 
 // MergeWith adds data from buf into the existing data in Redis
-func (r *RedisBloom) MergeWith(ctx context.Context, bucketID uint64, buf *bytes.Buffer) error {
+func (r *RedisBloom) MergeWith(ctx context.Context, bucketID uint64, addFinalBit bool, buf *bytes.Buffer) error {
 	if headerCheckErr := r.checkHeader(buf.Bytes()); headerCheckErr != nil {
 		return headerCheckErr
 	}
@@ -91,10 +91,12 @@ func (r *RedisBloom) MergeWith(ctx context.Context, bucketID uint64, buf *bytes.
 	pipeliner.
 		Set(tmpKey, buf.Bytes(), 0).
 		BitOpOr(dstKey, tmpKey).
-		SetBits(dstKey, r.maxLenWithHeader()+1).
 		Del(tmpKey)
 	r.writeHeader(pipeliner, dstKey)
 	r.ensureFilterSize(pipeliner, dstKey)
+	if addFinalBit {
+		pipeliner.SetBits(dstKey, r.maxLenWithHeader()+1)
+	}
 	return pipeliner.Exec()
 }
 
