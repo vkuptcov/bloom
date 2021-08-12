@@ -13,7 +13,8 @@ import (
 
 type DistributedFilter struct {
 	redisClient                   redisclients.RedisClient
-	filterParams                  FilterParams
+	FilterParams                  FilterParams
+	CachePrefix                   string
 	inMemory                      *InMemoryBlooms
 	redisBloom                    *RedisBloom
 	testInterceptor               testInterceptor
@@ -30,7 +31,8 @@ func NewDistributedFilter(
 ) *DistributedFilter {
 	f := &DistributedFilter{
 		redisClient:     redisClient,
-		filterParams:    filterParams,
+		FilterParams:    filterParams,
+		CachePrefix:     cachePrefix,
 		inMemory:        NewInMemory(filterParams),
 		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
 		testInterceptor: defaultNoOp,
@@ -107,8 +109,8 @@ func (df *DistributedFilter) TestUint64(i uint64) bool {
 
 func (df *DistributedFilter) GenerateBucketsMap() (map[uint32][]byte, error) {
 	var batchErr *multierror.Error
-	m := make(map[uint32][]byte, df.filterParams.BucketsCount)
-	for bucketID := uint32(0); bucketID < df.filterParams.BucketsCount; bucketID++ {
+	m := make(map[uint32][]byte, df.FilterParams.BucketsCount)
+	for bucketID := uint32(0); bucketID < df.FilterParams.BucketsCount; bucketID++ {
 		var buf bytes.Buffer
 		_, writeErr := df.inMemory.WriteTo(uint64(bucketID), &buf)
 		if writeErr != nil {
