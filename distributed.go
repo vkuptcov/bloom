@@ -3,6 +3,7 @@ package bloom
 import (
 	"bytes"
 	"context"
+	"io"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -102,6 +103,25 @@ func (df *DistributedFilter) TestUint32(i uint32) bool {
 
 func (df *DistributedFilter) TestUint64(i uint64) bool {
 	return df.Test(uint64ToByte(i))
+}
+
+func (df *DistributedFilter) GenerateBucketsMap() (map[uint32][]byte, error) {
+	var batchErr *multierror.Error
+	m := make(map[uint32][]byte, df.filterParams.BucketsCount)
+	for bucketID := uint32(0); bucketID < df.filterParams.BucketsCount; bucketID++ {
+		var buf bytes.Buffer
+		_, writeErr := df.inMemory.WriteTo(uint64(bucketID), &buf)
+		if writeErr != nil {
+			batchErr = multierror.Append(batchErr, errors.Wrapf(writeErr, "bucket %d bytes generation failed", bucketID))
+		} else {
+			m[bucketID] = buf.Bytes()
+		}
+	}
+	return m, batchErr.ErrorOrNil()
+}
+
+func (df *DistributedFilter) WriteTo(bucketID uint64, stream io.Writer) (int64, error) {
+	return df.inMemory.WriteTo(bucketID, stream)
 }
 
 func (df *DistributedFilter) listenForChanges(pubSub <-chan string) {
