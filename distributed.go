@@ -114,6 +114,10 @@ func (df *DistributedFilter) GenerateBucketsMap() (map[uint32][]byte, error) {
 	var batchErr *multierror.Error
 	m := make(map[uint32][]byte, df.FilterParams.BucketsCount)
 	for bucketID := uint32(0); bucketID < df.FilterParams.BucketsCount; bucketID++ {
+		if !df.initializedBuckets.isInitialized(bucketID) {
+			// @todo consider adding an error
+			continue
+		}
 		var buf bytes.Buffer
 		_, writeErr := df.inMemory.WriteTo(uint64(bucketID), &buf)
 		if writeErr != nil {
