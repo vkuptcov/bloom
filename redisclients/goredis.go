@@ -2,9 +2,9 @@ package redisclients
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/pkg/errors"
 )
 
 type goRedisClient struct {
@@ -18,14 +18,6 @@ func NewGoRedisClient(client redis.UniversalClient) RedisClient {
 func (g *goRedisClient) Get(ctx context.Context, key string) ([]byte, error) {
 	stringCmd := g.client.Get(ctx, key)
 	return stringCmd.Bytes()
-}
-
-func (g *goRedisClient) GetRange(ctx context.Context, key string, start, end int64) ([]byte, error) {
-	cmd := g.client.GetRange(ctx, key, start, end)
-	if cmd.Err() != nil && errors.Is(cmd.Err(), redis.Nil) {
-		return nil, nil
-	}
-	return cmd.Bytes()
 }
 
 func (g *goRedisClient) CheckBits(ctx context.Context, key string, offsets ...uint64) (bool, error) {
@@ -73,6 +65,21 @@ func (g *goRedisClient) Pipeliner(ctx context.Context) Pipeliner {
 type goRedisPipeliner struct {
 	ctx       context.Context
 	pipeliner redis.Pipeliner
+}
+
+func (g *goRedisPipeliner) Set(key string, data []byte, ttl time.Duration) Pipeliner {
+	g.pipeliner.Set(g.ctx, key, data, ttl)
+	return g
+}
+
+func (g *goRedisPipeliner) BitOpOr(dst, source string) Pipeliner {
+	g.pipeliner.BitOpOr(g.ctx, dst, dst, source)
+	return g
+}
+
+func (g *goRedisPipeliner) Del(key string) Pipeliner {
+	g.pipeliner.Del(g.ctx, key)
+	return g
 }
 
 func (g *goRedisPipeliner) BitField(key string, args ...interface{}) Pipeliner {
