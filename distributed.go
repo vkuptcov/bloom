@@ -164,6 +164,12 @@ func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 }
 
 func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results DataLoaderResults) error {
+	errorsBatch := df.applySourcesToBuckets(ctx, results)
+	errorsBatch = df.tryFinalizeFilterState(ctx, results, errorsBatch)
+	return errorsBatch.ErrorOrNil()
+}
+
+func (df *DistributedFilter) applySourcesToBuckets(ctx context.Context, results DataLoaderResults) *multierror.Error {
 	var errorsBatch *multierror.Error
 	if len(results.SourcesPerBucket) > 0 {
 		for bucketID, bucketContent := range results.SourcesPerBucket {
@@ -178,6 +184,10 @@ func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results 
 			}
 		}
 	}
+	return errorsBatch
+}
+
+func (df *DistributedFilter) tryFinalizeFilterState(ctx context.Context, results DataLoaderResults, errorsBatch *multierror.Error) *multierror.Error {
 	if results.FinalizeFilter && errorsBatch.ErrorOrNil() == nil {
 		for bucketID := uint32(0); bucketID < df.FilterParams.BucketsCount; bucketID++ {
 			df.initializedBuckets.initialize(bucketID)
@@ -187,7 +197,7 @@ func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results 
 			}
 		}
 	}
-	return errorsBatch.ErrorOrNil()
+	return errorsBatch
 }
 
 func (df *DistributedFilter) dumpStateInRedis(ctx context.Context, bucketID uint64, addFinalBit bool) error {
