@@ -151,8 +151,8 @@ func (r *RedisBloom) checkRedisFilterState(ctx context.Context, bucketID uint64)
 	return r.client.CheckBits(ctx, key, r.maxLenWithHeader()+1)
 }
 
-func (r *RedisBloom) finalizeInitState(pipeliner redisclients.Pipeliner, dstKey string) redisclients.Pipeliner {
-	return pipeliner.SetBits(dstKey, r.maxLenWithHeader()+1)
+func (r *RedisBloom) finalizeInitState(pipeliner redisclients.Pipeliner, dstKey string) {
+	pipeliner.SetBits(dstKey, r.maxLenWithHeader()+1)
 }
 
 func (r *RedisBloom) checkHeader(data []byte) error {

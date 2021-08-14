@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -22,6 +23,7 @@ type DistributedFilter struct {
 	checkRedisConsistencyInterval time.Duration
 	initializedBuckets            *initializedBuckets
 	logger                        Logger
+	isListensToUpdate             *atomic.Value
 }
 
 func NewDistributedFilter(
@@ -44,7 +46,9 @@ func NewDistributedFilter(
 		checkRedisConsistencyInterval: 5 * time.Minute,
 		initializedBuckets:            &initializedBuckets{},
 		logger:                        StdLogger(nil),
+		isListensToUpdate:             &atomic.Value{},
 	}
+	f.isListensToUpdate.Store(false)
 	return f
 }
 
@@ -53,16 +57,20 @@ func (df *DistributedFilter) setTestInterceptor(testInterceptor testInterceptor)
 }
 
 func (df *DistributedFilter) Init(ctx context.Context) error {
-	pubSub, listenErr := df.redisClient.Listen(ctx, df.redisBloom.cachePrefix)
-	if listenErr != nil {
-		return errors.Wrap(listenErr, "redis filter subscription failed")
+	listensForUpdate := df.isListensToUpdate.Load().(bool)
+	if !listensForUpdate {
+		pubSub, listenErr := df.redisClient.Listen(ctx, df.redisBloom.cachePrefix)
+		if listenErr != nil {
+			return errors.Wrap(listenErr, "redis filter subscription failed")
+		}
+		df.isListensToUpdate.Store(true)
+		go df.listenForChanges(pubSub)
 	}
 
 	initRedisFilterErr := df.redisBloom.Init(ctx)
 	if initRedisFilterErr != nil {
 		return errors.Wrap(initRedisFilterErr, "redis filter initialization failed")
 	}
-	go df.listenForChanges(pubSub)
 	return df.loadDataFromSources(ctx)
 }
 
