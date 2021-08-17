@@ -4,11 +4,21 @@ type Stage int
 
 const (
 	GlobalInit Stage = iota + 1
-	LoadData   Stage = iota + 1
+	RedisInit
+	LoadData
+	StartUpdatesListening
+	GenerateBuckets
+	GenerateParticularBucket
+	ApplySources
+	ApplyParticularBucketSource
+	DumpStateInRedis
+	FinalizeFilter
+	FinalizeParticularBucketFilter
 )
 
 type HooksInteraction interface {
 	Before(args ...interface{})
+	After(optionalErr error, args ...interface{})
 	AfterSuccess(args ...interface{})
 	AfterFail(err error, args ...interface{})
 }
@@ -23,6 +33,17 @@ type Hook struct {
 func (h *Hook) Before(args ...interface{}) {
 	if h.BeforeFn != nil {
 		h.BeforeFn(args...)
+	}
+}
+
+func (h *Hook) After(optionalErr error, args ...interface{}) {
+	if optionalErr != nil {
+		h.AfterFail(optionalErr, args...)
+	} else {
+		h.AfterSuccess(args...)
+	}
+	if h.AfterSuccessFn != nil {
+		h.AfterSuccessFn(args...)
 	}
 }
 
@@ -46,6 +67,10 @@ func (hs *Hooks) Before(stage Stage, args ...interface{}) {
 	hs.getHook(stage).Before(args...)
 }
 
+func (hs *Hooks) After(stage Stage, optionalErr error, args ...interface{}) {
+	hs.getHook(stage).After(optionalErr, args...)
+}
+
 func (hs *Hooks) AfterSuccess(stage Stage, args ...interface{}) {
 	hs.getHook(stage).AfterSuccess(args...)
 }
@@ -67,6 +92,8 @@ type noOpHook struct {
 }
 
 func (n noOpHook) Before(args ...interface{}) {}
+
+func (n noOpHook) After(optionalErr error, args ...interface{}) {}
 
 func (n noOpHook) AfterSuccess(args ...interface{}) {}
 
