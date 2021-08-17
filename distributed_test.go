@@ -101,14 +101,17 @@ func (st *DistributedFilterSuite) TestSeveralFiltersSync() {
 				fp,
 			)
 			if shift%2 == 0 {
-				filter.setTestInterceptor(&distributedTestHelper{
-					interference: map[string]func(){
-						"": func() {
-							time.Sleep(1 * time.Second)
+				filter.SetHooks(&Hooks{
+					hooks: map[Stage]HooksInteraction{
+						LoadData: &Hook{
+							BeforeFn: func(args ...interface{}) {
+								time.Sleep(1 * time.Second)
+							},
 						},
 					},
 				})
 			}
+
 			filters[shift] = filter
 			st.Require().NoErrorf(
 				filter.Init(
@@ -177,15 +180,3 @@ func (st *DistributedFilterSuite) init() {
 func TestDistributedFilterSuite(t *testing.T) {
 	suite.Run(t, &DistributedFilterSuite{})
 }
-
-type distributedTestHelper struct {
-	interference map[string]func()
-}
-
-func (d *distributedTestHelper) interfere(stage string) {
-	if fn, exists := d.interference[stage]; exists {
-		fn()
-	}
-}
-
-var _ testInterceptor = &distributedTestHelper{}

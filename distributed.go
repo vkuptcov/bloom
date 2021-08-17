@@ -18,12 +18,12 @@ type DistributedFilter struct {
 	CachePrefix                   string
 	inMemory                      *InMemoryBlooms
 	redisBloom                    *RedisBloom
-	testInterceptor               testInterceptor
 	fillInStrategies              []DataLoader
 	checkRedisConsistencyInterval time.Duration
 	initializedBuckets            *initializedBuckets
 	logger                        Logger
 	isListensToUpdate             *atomic.Value
+	hooks                         *Hooks
 }
 
 func NewDistributedFilter(
@@ -33,12 +33,11 @@ func NewDistributedFilter(
 	strategies ...DataLoader,
 ) *DistributedFilter {
 	f := &DistributedFilter{
-		redisClient:     redisClient,
-		FilterParams:    filterParams,
-		CachePrefix:     cachePrefix,
-		inMemory:        NewInMemory(filterParams),
-		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
-		testInterceptor: defaultNoOp,
+		redisClient:  redisClient,
+		FilterParams: filterParams,
+		CachePrefix:  cachePrefix,
+		inMemory:     NewInMemory(filterParams),
+		redisBloom:   NewRedisBloom(redisClient, cachePrefix, filterParams),
 		fillInStrategies: append([]DataLoader{
 			RedisStateCheck,
 			BulkLoaderFromRedis,
@@ -47,13 +46,14 @@ func NewDistributedFilter(
 		initializedBuckets:            &initializedBuckets{},
 		logger:                        StdLogger(nil),
 		isListensToUpdate:             &atomic.Value{},
+		hooks:                         &Hooks{},
 	}
 	f.isListensToUpdate.Store(false)
 	return f
 }
 
-func (df *DistributedFilter) setTestInterceptor(testInterceptor testInterceptor) {
-	df.testInterceptor = testInterceptor
+func (df *DistributedFilter) SetHooks(hooks *Hooks) {
+	df.hooks = hooks
 }
 
 func (df *DistributedFilter) Init(ctx context.Context) error {
@@ -148,7 +148,7 @@ func (df *DistributedFilter) listenForChanges(pubSub <-chan string) {
 }
 
 func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
-	df.testInterceptor.interfere("before-in-memory-init")
+	df.hooks.Before(LoadData)
 	for _, fs := range df.fillInStrategies {
 		results, dataLoaderErr := fs(ctx, df)
 		// if we have at least one bucket loaded it's better than nothing
@@ -160,6 +160,7 @@ func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 			break
 		}
 	}
+	df.hooks.AfterSuccess(LoadData)
 	return nil
 }
 
