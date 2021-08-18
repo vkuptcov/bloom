@@ -54,36 +54,35 @@ var RedisStateCheck DataLoader = func(ctx context.Context, df *DistributedFilter
 }
 
 var BulkLoaderFromRedis DataLoader = func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error) {
+	df.hooks.Before(BulkLoadingFromRedis)
 	redisBloom := df.redisBloom
 	var errorsBatch *multierror.Error
 	results := DefaultResults()
 	results.NeedRunNextLoader = false
 
 	for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
+		df.hooks.Before(BulkLoadingFromRedisForParticularBucket, bucketID)
 		var redisFilterBuf bytes.Buffer
 		writer := bufio.NewWriter(&redisFilterBuf)
 		if _, redisBloomWriteErr := redisBloom.WriteTo(ctx, bucketID, writer); redisBloomWriteErr != nil {
-			errorsBatch = multierror.Append(
-				errorsBatch,
-				errors.Wrap(redisBloomWriteErr, "bloom filter load from Redis failed"),
-			)
+			redisBloomWriteErr = errors.Wrapf(redisBloomWriteErr, "bloom filter load from Redis failed for bucket %d", bucketID)
+			df.hooks.AfterFail(BulkLoadingFromRedisForParticularBucket, redisBloomWriteErr, bucketID)
+			errorsBatch = multierror.Append(errorsBatch, redisBloomWriteErr)
 			continue
 		}
 
 		if flushErr := writer.Flush(); flushErr != nil {
-			errorsBatch = multierror.Append(
-				errorsBatch,
-				errors.Wrap(flushErr, "bloom filter flush failed"),
-			)
+			flushErr = errors.Wrapf(flushErr, "bloom filter flush failed for bucket %d", bucketID)
+			df.hooks.AfterFail(BulkLoadingFromRedisForParticularBucket, flushErr, bucketID)
+			errorsBatch = multierror.Append(errorsBatch, flushErr)
 			continue
 		}
 		results.SourcesPerBucket[bucketID] = redisFilterBuf.Bytes()
 		inited, checkErr := redisBloom.checkRedisFilterState(ctx, bucketID)
 		if checkErr != nil {
-			errorsBatch = multierror.Append(
-				errorsBatch,
-				errors.Wrap(checkErr, "bloom filter init state check error"),
-			)
+			checkErr = errors.Wrapf(checkErr, "bloom filter init state check error for bucket %d", bucketID)
+			df.hooks.AfterFail(BulkLoadingFromRedisForParticularBucket, checkErr, bucketID)
+			errorsBatch = multierror.Append(errorsBatch, checkErr)
 			continue
 		}
 		if !inited {
@@ -91,7 +90,9 @@ var BulkLoaderFromRedis DataLoader = func(ctx context.Context, df *DistributedFi
 		} else {
 			results.FinalizeFilter = true
 		}
+		df.hooks.AfterSuccess(BulkLoadingFromRedisForParticularBucket, results, inited)
 	}
+	df.hooks.After(BulkLoadingFromRedis, errorsBatch.ErrorOrNil(), results)
 	return results, errorsBatch.ErrorOrNil()
 }
 

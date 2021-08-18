@@ -16,6 +16,8 @@ const (
 	FinalizeParticularBucketFilter
 	RedisFiltersStateCheck
 	RedisParticularBucketStateCheck
+	BulkLoadingFromRedis
+	BulkLoadingFromRedisForParticularBucket
 )
 
 type HooksInteraction interface {
