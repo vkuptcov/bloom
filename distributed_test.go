@@ -101,15 +101,12 @@ func (st *DistributedFilterSuite) TestSeveralFiltersSync() {
 				fp,
 			)
 			if shift%2 == 0 {
-				filter.SetHooks(&Hooks{
-					hooks: map[Stage]Hook{
-						LoadData: &HookImpl{
-							BeforeFn: func(args ...interface{}) {
-								time.Sleep(1 * time.Second)
-							},
-						},
+				filter.SetHooks(NewHooks(&HookImpl{
+					Stage: LoadData,
+					BeforeFn: func(args ...interface{}) {
+						time.Sleep(1 * time.Second)
 					},
-				})
+				}))
 			}
 
 			filters[shift] = filter

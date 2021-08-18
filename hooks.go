@@ -1,5 +1,9 @@
 package bloom
 
+import (
+	"sync"
+)
+
 type Stage int
 
 const (
@@ -70,8 +74,9 @@ func (h *HookImpl) AfterFail(err error, args ...interface{}) {
 }
 
 type Hooks struct {
-	hooks       map[Stage]Hook
-	defaultHook Hook
+	hooks        map[Stage]Hook
+	hooksCreator func(stage Stage) Hook
+	mu           *sync.RWMutex
 }
 
 func NewHooks(hooks ...Hook) *Hooks {
@@ -80,8 +85,11 @@ func NewHooks(hooks ...Hook) *Hooks {
 
 func NewHooksWithDefault(defaultHook Hook, hooks ...Hook) *Hooks {
 	hs := &Hooks{
-		hooks:       make(map[Stage]Hook, len(hooks)),
-		defaultHook: defaultHook,
+		hooks: make(map[Stage]Hook, len(hooks)),
+		hooksCreator: func(stage Stage) Hook {
+			return defaultHook
+		},
+		mu: &sync.RWMutex{},
 	}
 	for _, h := range hooks {
 		hs.hooks[h.GetStage()] = h
@@ -106,8 +114,17 @@ func (hs *Hooks) AfterFail(stage Stage, err error, args ...interface{}) {
 }
 
 func (hs *Hooks) getHook(stage Stage) Hook {
+	hs.mu.RLock()
 	if h, exists := hs.hooks[stage]; exists {
+		hs.mu.RUnlock()
 		return h
+	}
+	hs.mu.RUnlock()
+	if hs.hooksCreator != nil {
+		hs.mu.Lock()
+		defer hs.mu.Unlock()
+		hs.hooks[stage] = hs.hooksCreator(stage)
+		return hs.hooks[stage]
 	}
 	return noOpHookInst
 }

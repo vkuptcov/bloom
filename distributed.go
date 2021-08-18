@@ -46,7 +46,7 @@ func NewDistributedFilter(
 		initializedBuckets:            &initializedBuckets{},
 		logger:                        StdLogger(nil),
 		isListensToUpdate:             &atomic.Value{},
-		hooks:                         &Hooks{},
+		hooks:                         NewHooks(),
 	}
 	f.isListensToUpdate.Store(false)
 	return f
