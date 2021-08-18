@@ -27,26 +27,29 @@ func DefaultResults() DataLoaderResults {
 type DataLoader func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error)
 
 var RedisStateCheck DataLoader = func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error) {
+	df.hooks.Before(RedisFiltersStateCheck)
 	redisBloom := df.redisBloom
 	var errorsBatch *multierror.Error
 	results := DefaultResults()
 	results.NeedRunNextLoader = false
 	for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
+		df.hooks.Before(RedisParticularBucketStateCheck, bucketID)
 		inited, checkErr := redisBloom.checkRedisFilterState(ctx, bucketID)
 		if checkErr != nil {
-			errorsBatch = multierror.Append(
-				errorsBatch,
-				errors.Wrap(checkErr, "bloom filter init state check error"),
-			)
+			checkErr = errors.Wrapf(checkErr, "bloom filter init state check error for bucket %d", bucketID)
+			df.hooks.AfterFail(RedisParticularBucketStateCheck, checkErr, bucketID)
+			errorsBatch = multierror.Append(errorsBatch, checkErr)
 			continue
 		}
 		if !inited {
 			results.NeedRunNextLoader = true
 		}
+		df.hooks.AfterSuccess(RedisParticularBucketStateCheck, bucketID, inited)
 	}
 	if df.initializedBuckets.len() != int(df.FilterParams.BucketsCount) {
 		results.NeedRunNextLoader = true
 	}
+	df.hooks.After(RedisFiltersStateCheck, errorsBatch.ErrorOrNil(), df.initializedBuckets.len(), results)
 	return results, errorsBatch.ErrorOrNil()
 }
 

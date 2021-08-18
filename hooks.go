@@ -14,6 +14,8 @@ const (
 	DumpStateInRedis
 	FinalizeFilter
 	FinalizeParticularBucketFilter
+	RedisFiltersStateCheck
+	RedisParticularBucketStateCheck
 )
 
 type HooksInteraction interface {
