@@ -25,6 +25,27 @@ const (
 	BulkLoadingFromRedisForParticularBucket
 )
 
+func (s Stage) String() string {
+	return [...]string{
+		"Default",
+		"GlobalInit",
+		"RedisInit",
+		"LoadData",
+		"StartUpdatesListening",
+		"GenerateBuckets",
+		"GenerateParticularBucket",
+		"ApplySources",
+		"ApplyParticularBucketSource",
+		"DumpStateInRedis",
+		"FinalizeFilter",
+		"FinalizeParticularBucketFilter",
+		"RedisFiltersStateCheck",
+		"RedisParticularBucketStateCheck",
+		"BulkLoadingFromRedis",
+		"BulkLoadingFromRedisForParticularBucket",
+	}[s]
+}
+
 type Hook interface {
 	GetStage() Stage
 	Before(args ...interface{})
