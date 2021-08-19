@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
@@ -16,6 +17,16 @@ type DataLoaderResults struct {
 	DumpStateInRedis  bool
 	NeedRunNextLoader bool
 	FinalizeFilter    bool
+}
+
+func (r DataLoaderResults) String() string {
+	return fmt.Sprintf(
+		"DataLoaderResults(DumpStateInRedis: %t, NeedRunNextLoader: %t, FinalizeFilter: %t, len(SourcesPerBucket): %d)",
+		r.DumpStateInRedis,
+		r.NeedRunNextLoader,
+		r.FinalizeFilter,
+		len(r.SourcesPerBucket),
+	)
 }
 
 func DefaultResults() DataLoaderResults {
