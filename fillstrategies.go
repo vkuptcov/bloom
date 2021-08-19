@@ -13,6 +13,7 @@ import (
 var UnsupportedDataTypeErr = errors.New("unsupported data type")
 
 type DataLoaderResults struct {
+	Name              string
 	SourcesPerBucket  map[uint64][]byte
 	DumpStateInRedis  bool
 	NeedRunNextLoader bool
@@ -21,7 +22,8 @@ type DataLoaderResults struct {
 
 func (r DataLoaderResults) String() string {
 	return fmt.Sprintf(
-		"DataLoaderResults(DumpStateInRedis: %t, NeedRunNextLoader: %t, FinalizeFilter: %t, len(SourcesPerBucket): %d)",
+		"DataLoaderResults(Name: %s, DumpStateInRedis: %t, NeedRunNextLoader: %t, FinalizeFilter: %t, len(SourcesPerBucket): %d)",
+		r.Name,
 		r.DumpStateInRedis,
 		r.NeedRunNextLoader,
 		r.FinalizeFilter,
@@ -42,6 +44,7 @@ var RedisStateCheck DataLoader = func(ctx context.Context, df *DistributedFilter
 	redisBloom := df.redisBloom
 	var errorsBatch *multierror.Error
 	results := DefaultResults()
+	results.Name = "RedisStateCheck"
 	results.NeedRunNextLoader = false
 	for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
 		df.hooks.Before(RedisParticularBucketStateCheck, bucketID)
@@ -69,6 +72,7 @@ var BulkLoaderFromRedis DataLoader = func(ctx context.Context, df *DistributedFi
 	redisBloom := df.redisBloom
 	var errorsBatch *multierror.Error
 	results := DefaultResults()
+	results.Name = "BulkLoaderFromRedis"
 	results.NeedRunNextLoader = false
 
 	for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
