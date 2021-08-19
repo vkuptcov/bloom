@@ -172,14 +172,17 @@ func (df *DistributedFilter) listenForChanges(pubSub <-chan string) {
 func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 	df.hooks.Before(LoadData)
 	for _, fs := range df.fillInStrategies {
-		results, dataLoaderErr := fs(ctx, df)
+		df.hooks.Before(LoadDataForSource, fs.Name())
+		results, dataLoaderErr := fs.Load(ctx, df)
 		// if we have at least one bucket loaded it's better than nothing
 		handleResultErr := df.handleDataLoadResults(ctx, results)
 		if handleResultErr != nil || dataLoaderErr != nil {
 			err := multierror.Append(dataLoaderErr, handleResultErr)
-			df.hooks.AfterFail(LoadData, err)
+			df.hooks.AfterFail(LoadDataForSource, err.ErrorOrNil(), fs.Name(), results)
+			df.hooks.AfterFail(LoadData, err.ErrorOrNil())
 			return err
 		}
+		df.hooks.AfterSuccess(LoadDataForSource, fs.Name(), results)
 		if !results.NeedRunNextLoader {
 			break
 		}

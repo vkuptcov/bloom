@@ -11,6 +11,7 @@ const (
 	GlobalInit
 	RedisInit
 	LoadData
+	LoadDataForSource
 	StartUpdatesListening
 	GenerateBuckets
 	GenerateParticularBucket
@@ -31,6 +32,7 @@ func (s Stage) String() string {
 		"GlobalInit",
 		"RedisInit",
 		"LoadData",
+		"LoadDataForSource",
 		"StartUpdatesListening",
 		"GenerateBuckets",
 		"GenerateParticularBucket",
