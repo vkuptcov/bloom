@@ -75,7 +75,7 @@ func (h *HookImpl) AfterFail(err error, args ...interface{}) {
 
 type Hooks struct {
 	hooks        map[Stage]Hook
-	hooksCreator func(stage Stage) Hook
+	hooksFactory func(stage Stage) Hook
 	mu           *sync.RWMutex
 }
 
@@ -84,12 +84,19 @@ func NewHooks(hooks ...Hook) *Hooks {
 }
 
 func NewHooksWithDefault(defaultHook Hook, hooks ...Hook) *Hooks {
-	hs := &Hooks{
-		hooks: make(map[Stage]Hook, len(hooks)),
-		hooksCreator: func(stage Stage) Hook {
+	return NewHooksWithFactory(
+		func(stage Stage) Hook {
 			return defaultHook
 		},
-		mu: &sync.RWMutex{},
+		hooks...,
+	)
+}
+
+func NewHooksWithFactory(defaultHookFactory func(stage Stage) Hook, hooks ...Hook) *Hooks {
+	hs := &Hooks{
+		hooks:        make(map[Stage]Hook, len(hooks)),
+		hooksFactory: defaultHookFactory,
+		mu:           &sync.RWMutex{},
 	}
 	for _, h := range hooks {
 		hs.hooks[h.GetStage()] = h
@@ -120,10 +127,10 @@ func (hs *Hooks) getHook(stage Stage) Hook {
 		return h
 	}
 	hs.mu.RUnlock()
-	if hs.hooksCreator != nil {
+	if hs.hooksFactory != nil {
 		hs.mu.Lock()
 		defer hs.mu.Unlock()
-		hs.hooks[stage] = hs.hooksCreator(stage)
+		hs.hooks[stage] = hs.hooksFactory(stage)
 		return hs.hooks[stage]
 	}
 	return noOpHookInst
