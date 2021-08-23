@@ -170,6 +170,9 @@ func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 	for _, fs := range df.fillInStrategies {
 		df.hooks.Before(LoadDataFromSource, fs.Name())
 		results, dataLoaderErr := fs.Load(ctx, df)
+		if results.Name == "" {
+			results.Name = fs.Name()
+		}
 		// if we have at least one bucket loaded it's better than nothing
 		handleResultErr := df.handleDataLoadResults(ctx, results)
 		if handleResultErr != nil || dataLoaderErr != nil {
@@ -188,12 +191,8 @@ func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
 }
 
 func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results DataLoaderResults) error {
-	df.hooks.Before(ApplySources)
 	errorsBatch := df.applySourcesToBuckets(ctx, results)
-	df.hooks.After(ApplySources, errorsBatch.ErrorOrNil())
-	df.hooks.Before(FinalizeFilters)
 	errorsBatch = df.tryFinalizeFilterState(ctx, results, errorsBatch)
-	df.hooks.After(FinalizeFilters, errorsBatch.ErrorOrNil())
 	return errorsBatch.ErrorOrNil()
 }
 
@@ -202,6 +201,7 @@ func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results 
 func (df *DistributedFilter) applySourcesToBuckets(ctx context.Context, results DataLoaderResults) *multierror.Error {
 	var errorsBatch *multierror.Error
 	if len(results.SourcesPerBucket) > 0 {
+		df.hooks.Before(ApplySources, results.Name)
 		for bucketID, bucketContent := range results.SourcesPerBucket {
 			df.hooks.Before(ApplySourceForBucket, bucketID)
 			if restoreErr := df.inMemory.AddFrom(bucketID, bytes.NewReader(bucketContent)); restoreErr != nil {
@@ -221,12 +221,14 @@ func (df *DistributedFilter) applySourcesToBuckets(ctx context.Context, results 
 				df.hooks.After(DumpStateInRedisForBucket, dumpErr, bucketID)
 			}
 		}
+		df.hooks.After(ApplySources, errorsBatch.ErrorOrNil())
 	}
 	return errorsBatch
 }
 
 func (df *DistributedFilter) tryFinalizeFilterState(ctx context.Context, results DataLoaderResults, errorsBatch *multierror.Error) *multierror.Error {
 	if results.FinalizeFilter && errorsBatch.ErrorOrNil() == nil {
+		df.hooks.Before(FinalizeFilters)
 		for bucketID := uint32(0); bucketID < df.FilterParams.BucketsCount; bucketID++ {
 			df.hooks.Before(FinalizeFilterForBucket, bucketID)
 			df.initializedBuckets.initialize(bucketID)
@@ -237,6 +239,7 @@ func (df *DistributedFilter) tryFinalizeFilterState(ctx context.Context, results
 			}
 			df.hooks.After(FinalizeFilterForBucket, initializationErr, bucketID)
 		}
+		df.hooks.After(FinalizeFilters, errorsBatch.ErrorOrNil())
 	}
 	return errorsBatch
 }
