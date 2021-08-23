@@ -71,9 +71,10 @@ var RedisStateCheck = NewDataLoader(
 		results := DefaultResults()
 		results.Name = "RedisStateCheck"
 		results.NeedRunNextLoader = false
-		for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
+		var initializedBucketsCount int
+		for bucketID := uint32(0); bucketID < redisBloom.filterParams.BucketsCount; bucketID++ {
 			df.hooks.Before(RedisParticularBucketStateCheck, bucketID)
-			inited, checkErr := redisBloom.checkRedisFilterState(ctx, bucketID)
+			inited, checkErr := redisBloom.checkRedisFilterState(ctx, uint64(bucketID))
 			if checkErr != nil {
 				checkErr = errors.Wrapf(checkErr, "bloom filter init state check error for bucket %d", bucketID)
 				df.hooks.AfterFail(RedisParticularBucketStateCheck, checkErr, bucketID)
@@ -82,13 +83,15 @@ var RedisStateCheck = NewDataLoader(
 			}
 			if !inited {
 				results.NeedRunNextLoader = true
+			} else {
+				initializedBucketsCount++
 			}
 			df.hooks.AfterSuccess(RedisParticularBucketStateCheck, bucketID, inited)
 		}
 		if df.initializedBuckets.len() != int(df.FilterParams.BucketsCount) {
 			results.NeedRunNextLoader = true
 		}
-		df.hooks.After(RedisFiltersStateCheck, errorsBatch.ErrorOrNil(), df.initializedBuckets.len(), results)
+		df.hooks.After(RedisFiltersStateCheck, errorsBatch.ErrorOrNil(), initializedBucketsCount, results)
 		return results, errorsBatch.ErrorOrNil()
 	},
 )
