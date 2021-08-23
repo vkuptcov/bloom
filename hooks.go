@@ -11,19 +11,19 @@ const (
 	GlobalInit
 	RedisInit
 	LoadData
-	LoadDataForSource
+	LoadDataFromSource
 	StartUpdatesListening
 	GenerateBuckets
 	GenerateParticularBucket
 	ApplySources
-	ApplyParticularBucketSource
-	DumpStateInRedis
-	FinalizeFilter
-	FinalizeParticularBucketFilter
-	RedisFiltersStateCheck
-	RedisParticularBucketStateCheck
+	ApplySourceForBucket
+	DumpStateInRedisForBucket
+	FinalizeFilters
+	FinalizeFilterForBucket
+	RedisFiltersStatesCheck
+	RedisFiltersStateForBucket
 	BulkLoadingFromRedis
-	BulkLoadingFromRedisForParticularBucket
+	BulkLoadingFromRedisForBucket
 )
 
 func (s Stage) String() string {
@@ -32,19 +32,19 @@ func (s Stage) String() string {
 		"GlobalInit",
 		"RedisInit",
 		"LoadData",
-		"LoadDataForSource",
+		"LoadDataFromSource",
 		"StartUpdatesListening",
 		"GenerateBuckets",
 		"GenerateParticularBucket",
 		"ApplySources",
-		"ApplyParticularBucketSource",
-		"DumpStateInRedis",
-		"FinalizeFilter",
-		"FinalizeParticularBucketFilter",
-		"RedisFiltersStateCheck",
-		"RedisParticularBucketStateCheck",
+		"ApplySourceForBucket",
+		"DumpStateInRedisForBucket",
+		"FinalizeFilters",
+		"FinalizeFilterForBucket",
+		"RedisFiltersStatesCheck",
+		"RedisFiltersStateForBucket",
 		"BulkLoadingFromRedis",
-		"BulkLoadingFromRedisForParticularBucket",
+		"BulkLoadingFromRedisForBucket",
 	}[s]
 }
 
