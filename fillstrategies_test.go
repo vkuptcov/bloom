@@ -49,19 +49,22 @@ func TestDistributedFilterSuite(t *testing.T) {
 	suite.Run(t, &FillStrategiesSuite{})
 }
 
-func testSource(ctx context.Context, df *bloom.DistributedFilter) (bloom.DataLoaderResults, error) {
-	results := bloom.DefaultResults()
-	f := bloom.NewInMemory(filterParams)
-	for i := uint16(0); i < 50; i++ {
-		f.AddUint16(i)
-	}
-	for bucketID := uint64(0); bucketID < uint64(filterParams.BucketsCount); bucketID++ {
-		var buf bytes.Buffer
-		_, err := f.WriteTo(bucketID, &buf)
-		if err != nil {
-			return results, err
+var testSource = bloom.NewDataLoader(
+	"test",
+	func(ctx context.Context, df *bloom.DistributedFilter) (bloom.DataLoaderResults, error) {
+		results := bloom.DefaultResults()
+		f := bloom.NewInMemory(filterParams)
+		for i := uint16(0); i < 50; i++ {
+			f.AddUint16(i)
 		}
-		results.SourcesPerBucket[bucketID] = buf.Bytes()
-	}
-	return results, nil
-}
+		for bucketID := uint64(0); bucketID < uint64(filterParams.BucketsCount); bucketID++ {
+			var buf bytes.Buffer
+			_, err := f.WriteTo(bucketID, &buf)
+			if err != nil {
+				return results, err
+			}
+			results.SourcesPerBucket[bucketID] = buf.Bytes()
+		}
+		return results, nil
+	},
+)

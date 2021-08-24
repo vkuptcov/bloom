@@ -18,12 +18,12 @@ type DistributedFilter struct {
 	CachePrefix                   string
 	inMemory                      *InMemoryBlooms
 	redisBloom                    *RedisBloom
-	testInterceptor               testInterceptor
 	fillInStrategies              []DataLoader
 	checkRedisConsistencyInterval time.Duration
 	initializedBuckets            *initializedBuckets
 	logger                        Logger
 	isListensToUpdate             *atomic.Value
+	hooks                         *Hooks
 }
 
 func NewDistributedFilter(
@@ -33,12 +33,11 @@ func NewDistributedFilter(
 	strategies ...DataLoader,
 ) *DistributedFilter {
 	f := &DistributedFilter{
-		redisClient:     redisClient,
-		FilterParams:    filterParams,
-		CachePrefix:     cachePrefix,
-		inMemory:        NewInMemory(filterParams),
-		redisBloom:      NewRedisBloom(redisClient, cachePrefix, filterParams),
-		testInterceptor: defaultNoOp,
+		redisClient:  redisClient,
+		FilterParams: filterParams,
+		CachePrefix:  cachePrefix,
+		inMemory:     NewInMemory(filterParams),
+		redisBloom:   NewRedisBloom(redisClient, cachePrefix, filterParams),
 		fillInStrategies: append([]DataLoader{
 			RedisStateCheck,
 			BulkLoaderFromRedis,
@@ -47,30 +46,42 @@ func NewDistributedFilter(
 		initializedBuckets:            &initializedBuckets{},
 		logger:                        StdLogger(nil),
 		isListensToUpdate:             &atomic.Value{},
+		hooks:                         NewHooks(),
 	}
 	f.isListensToUpdate.Store(false)
 	return f
 }
 
-func (df *DistributedFilter) setTestInterceptor(testInterceptor testInterceptor) {
-	df.testInterceptor = testInterceptor
+func (df *DistributedFilter) SetHooks(hooks *Hooks) {
+	df.hooks = hooks
 }
 
-func (df *DistributedFilter) Init(ctx context.Context) error {
+func (df *DistributedFilter) Init(ctx context.Context) (initErr error) {
+	defer func() {
+		df.hooks.After(GlobalInit, initErr)
+	}()
+	df.hooks.Before(GlobalInit)
 	listensForUpdate := df.isListensToUpdate.Load().(bool)
 	if !listensForUpdate {
+		df.hooks.Before(StartUpdatesListening)
 		pubSub, listenErr := df.redisClient.Listen(ctx, df.redisBloom.cachePrefix)
 		if listenErr != nil {
-			return errors.Wrap(listenErr, "redis filter subscription failed")
+			listenErr = errors.Wrap(listenErr, "redis filter subscription failed")
+			df.hooks.AfterFail(StartUpdatesListening, listenErr)
+			return listenErr
 		}
 		df.isListensToUpdate.Store(true)
 		go df.listenForChanges(pubSub)
 	}
 
+	df.hooks.Before(RedisInit)
 	initRedisFilterErr := df.redisBloom.Init(ctx)
 	if initRedisFilterErr != nil {
-		return errors.Wrap(initRedisFilterErr, "redis filter initialization failed")
+		initRedisFilterErr = errors.Wrap(initRedisFilterErr, "redis filter initialization failed")
+		df.hooks.AfterFail(RedisInit, initRedisFilterErr)
+		return initRedisFilterErr
 	}
+	df.hooks.AfterSuccess(RedisInit)
 	return df.loadDataFromSources(ctx)
 }
 
@@ -119,21 +130,28 @@ func (df *DistributedFilter) TestUint64(i uint64) bool {
 }
 
 func (df *DistributedFilter) GenerateBucketsMap() (map[uint32][]byte, error) {
+	df.hooks.Before(GenerateBuckets)
 	var batchErr *multierror.Error
 	m := make(map[uint32][]byte, df.FilterParams.BucketsCount)
 	for bucketID := uint32(0); bucketID < df.FilterParams.BucketsCount; bucketID++ {
+		df.hooks.Before(GenerateParticularBucket, bucketID)
 		if !df.initializedBuckets.isInitialized(bucketID) {
 			// @todo consider adding an error
+			df.hooks.AfterSuccess(GenerateParticularBucket, bucketID, "bucket is not initialized in memory")
 			continue
 		}
 		var buf bytes.Buffer
 		_, writeErr := df.inMemory.WriteTo(uint64(bucketID), &buf)
 		if writeErr != nil {
-			batchErr = multierror.Append(batchErr, errors.Wrapf(writeErr, "bucket %d bytes generation failed", bucketID))
+			writeErr = errors.Wrapf(writeErr, "bucket %d bytes generation failed", bucketID)
+			df.hooks.AfterFail(GenerateParticularBucket, writeErr, bucketID)
+			batchErr = multierror.Append(batchErr, writeErr)
 		} else {
 			m[bucketID] = buf.Bytes()
+			df.hooks.AfterSuccess(GenerateParticularBucket, bucketID, "bucket is initialized in memory")
 		}
 	}
+	df.hooks.After(GenerateBuckets, batchErr.ErrorOrNil())
 	return m, batchErr.ErrorOrNil()
 }
 
@@ -148,54 +166,80 @@ func (df *DistributedFilter) listenForChanges(pubSub <-chan string) {
 }
 
 func (df *DistributedFilter) loadDataFromSources(ctx context.Context) error {
-	df.testInterceptor.interfere("before-in-memory-init")
+	df.hooks.Before(LoadData)
 	for _, fs := range df.fillInStrategies {
-		results, dataLoaderErr := fs(ctx, df)
-		// if we have at least one bucket loaded it's better than nothing
-		handleResultErr := df.handleDataLoadResults(ctx, results)
-		if handleResultErr != nil || dataLoaderErr != nil {
-			return multierror.Append(dataLoaderErr, handleResultErr)
+		df.hooks.Before(LoadDataFromSource, fs.Name())
+		results, dataLoaderErr := fs.Load(ctx, df)
+		if results.Name == "" {
+			results.Name = fs.Name()
 		}
+		// if we have at least one bucket loaded it's better than nothing
+		handleResultErr := df.handleDataLoadResults(ctx, fs.Name(), results)
+		if handleResultErr != nil || dataLoaderErr != nil {
+			err := multierror.Append(dataLoaderErr, handleResultErr)
+			df.hooks.AfterFail(LoadDataFromSource, err.ErrorOrNil(), fs.Name(), results)
+			df.hooks.AfterFail(LoadData, err.ErrorOrNil())
+			return err
+		}
+		df.hooks.AfterSuccess(LoadDataFromSource, fs.Name(), results)
 		if !results.NeedRunNextLoader {
 			break
 		}
 	}
+	df.hooks.AfterSuccess(LoadData)
 	return nil
 }
 
-func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, results DataLoaderResults) error {
-	errorsBatch := df.applySourcesToBuckets(ctx, results)
-	errorsBatch = df.tryFinalizeFilterState(ctx, results, errorsBatch)
+func (df *DistributedFilter) handleDataLoadResults(ctx context.Context, dataSourceName string, results DataLoaderResults) error {
+	errorsBatch := df.applySourcesToBuckets(ctx, dataSourceName, results)
+	errorsBatch = df.tryFinalizeFilterState(ctx, dataSourceName, results, errorsBatch)
 	return errorsBatch.ErrorOrNil()
 }
 
-func (df *DistributedFilter) applySourcesToBuckets(ctx context.Context, results DataLoaderResults) *multierror.Error {
+// applySourcesToBuckets adds the data from the data loaders into in-memory filters
+// and it also optionally dumps data in Redis
+func (df *DistributedFilter) applySourcesToBuckets(ctx context.Context, dataSourceName string, results DataLoaderResults) *multierror.Error {
 	var errorsBatch *multierror.Error
 	if len(results.SourcesPerBucket) > 0 {
+		df.hooks.Before(ApplySources, dataSourceName, results)
 		for bucketID, bucketContent := range results.SourcesPerBucket {
+			df.hooks.Before(ApplySourceForBucket, bucketID, dataSourceName, results)
 			if restoreErr := df.inMemory.AddFrom(bucketID, bytes.NewReader(bucketContent)); restoreErr != nil {
-				errorsBatch = multierror.Append(errorsBatch, errors.Wrap(restoreErr, "in-memory filter restore failed"))
+				restoreErr = errors.Wrapf(restoreErr, "in-memory filter restore failed for bucket %d", bucketID)
+				df.hooks.AfterFail(ApplySourceForBucket, restoreErr, bucketID, dataSourceName, results)
+				errorsBatch = multierror.Append(errorsBatch, restoreErr)
 				continue
 			}
+			df.hooks.AfterSuccess(ApplySourceForBucket, bucketID, dataSourceName, results)
 			if results.DumpStateInRedis {
-				if dumpErr := df.dumpStateInRedis(ctx, bucketID, results.FinalizeFilter); dumpErr != nil {
-					errorsBatch = multierror.Append(errorsBatch, errors.Wrap(dumpErr, "redis dump filter failed"))
+				df.hooks.Before(DumpStateInRedisForBucket, bucketID, dataSourceName, results)
+				dumpErr := df.dumpStateInRedis(ctx, bucketID, results.FinalizeFilter)
+				if dumpErr != nil {
+					dumpErr = errors.Wrapf(dumpErr, "redis dump filter failed for bucket %d", bucketID)
+					errorsBatch = multierror.Append(errorsBatch, dumpErr)
 				}
+				df.hooks.After(DumpStateInRedisForBucket, dumpErr, bucketID, dataSourceName, results)
 			}
 		}
+		df.hooks.After(ApplySources, errorsBatch.ErrorOrNil(), dataSourceName, results)
 	}
 	return errorsBatch
 }
 
-func (df *DistributedFilter) tryFinalizeFilterState(ctx context.Context, results DataLoaderResults, errorsBatch *multierror.Error) *multierror.Error {
+func (df *DistributedFilter) tryFinalizeFilterState(ctx context.Context, dataSourceName string, results DataLoaderResults, errorsBatch *multierror.Error) *multierror.Error {
 	if results.FinalizeFilter && errorsBatch.ErrorOrNil() == nil {
+		df.hooks.Before(FinalizeFilters, dataSourceName, results)
 		for bucketID := uint32(0); bucketID < df.FilterParams.BucketsCount; bucketID++ {
+			df.hooks.Before(FinalizeFilterForBucket, bucketID, dataSourceName, results)
 			df.initializedBuckets.initialize(bucketID)
 			initializationErr := df.redisBloom.initializeFilter(ctx, uint64(bucketID))
 			if initializationErr != nil {
-				errorsBatch = multierror.Append(errorsBatch, errors.Wrap(initializationErr, "redis initialization filter failed"))
+				initializationErr = errors.Wrapf(initializationErr, "redis initialization filter failed for bucket %d", bucketID)
+				errorsBatch = multierror.Append(errorsBatch, initializationErr)
 			}
+			df.hooks.After(FinalizeFilterForBucket, initializationErr, bucketID, dataSourceName, results)
 		}
+		df.hooks.After(FinalizeFilters, errorsBatch.ErrorOrNil(), dataSourceName, results)
 	}
 	return errorsBatch
 }

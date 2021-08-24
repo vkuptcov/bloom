@@ -133,10 +133,10 @@ func (r *RedisBloom) maxLenWithHeader() uint64 {
 }
 
 func (r *RedisBloom) redisKeyByBucket(bucketID uint64) string {
-	return r.cachePrefix +
+	return "{" + r.cachePrefix +
 		"|" + strconv.FormatUint(uint64(r.bitsCount), 10) +
 		"|" + strconv.FormatUint(uint64(r.hashFunctionsNumber), 10) +
-		"|" + strconv.FormatUint(bucketID, 10)
+		"|" + strconv.FormatUint(bucketID, 10) + "}"
 }
 
 func (r *RedisBloom) initializeFilter(ctx context.Context, bucketID uint64) (err error) {
