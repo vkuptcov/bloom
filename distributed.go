@@ -211,19 +211,33 @@ func (df *DistributedFilter) applySourcesToBuckets(ctx context.Context, dataSour
 				continue
 			}
 			df.hooks.AfterSuccess(ApplySourceForBucket, bucketID, dataSourceName, results)
-			if results.DumpStateInRedis {
-				df.hooks.Before(DumpStateInRedisForBucket, bucketID, dataSourceName, results)
-				dumpErr := df.dumpStateInRedis(ctx, bucketID, results.FinalizeFilter)
-				if dumpErr != nil {
-					dumpErr = errors.Wrapf(dumpErr, "redis dump filter failed for bucket %d", bucketID)
-					errorsBatch = multierror.Append(errorsBatch, dumpErr)
-				}
-				df.hooks.After(DumpStateInRedisForBucket, dumpErr, bucketID, dataSourceName, results)
+			if dumpErr := df.tryDumpBucket(ctx, dataSourceName, results, bucketID); dumpErr != nil {
+				errorsBatch = multierror.Append(errorsBatch, dumpErr)
 			}
 		}
 		df.hooks.After(ApplySources, errorsBatch.ErrorOrNil(), dataSourceName, results)
+	} else {
+		for bucketID := uint64(0); bucketID < uint64(df.FilterParams.BucketsCount); bucketID++ {
+			if dumpErr := df.tryDumpBucket(ctx, dataSourceName, results, bucketID); dumpErr != nil {
+				errorsBatch = multierror.Append(errorsBatch, dumpErr)
+			}
+		}
 	}
+
 	return errorsBatch
+}
+
+func (df *DistributedFilter) tryDumpBucket(ctx context.Context, dataSourceName string, results DataLoaderResults, bucketID uint64) error {
+	if results.DumpStateInRedis {
+		df.hooks.Before(DumpStateInRedisForBucket, bucketID, dataSourceName, results)
+		dumpErr := df.dumpStateInRedis(ctx, bucketID, results.FinalizeFilter)
+		if dumpErr != nil {
+			dumpErr = errors.Wrapf(dumpErr, "redis dump filter failed for bucket %d", bucketID)
+		}
+		df.hooks.After(DumpStateInRedisForBucket, dumpErr, bucketID, dataSourceName, results)
+		return dumpErr
+	}
+	return nil
 }
 
 func (df *DistributedFilter) tryFinalizeFilterState(ctx context.Context, dataSourceName string, results DataLoaderResults, errorsBatch *multierror.Error) *multierror.Error {
