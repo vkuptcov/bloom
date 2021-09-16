@@ -57,7 +57,7 @@ var testSource = bloom.NewDataLoader(
 		for i := uint16(0); i < 50; i++ {
 			f.AddUint16(i)
 		}
-		for bucketID := uint64(0); bucketID < uint64(filterParams.BucketsCount); bucketID++ {
+		for bucketID := 0; bucketID < filterParams.BucketsCount; bucketID++ {
 			var buf bytes.Buffer
 			_, err := f.WriteTo(bucketID, &buf)
 			if err != nil {

@@ -5,7 +5,7 @@ import (
 )
 
 type FilterParams struct {
-	BucketsCount   uint32
+	BucketsCount   int
 	TotalElements  uint64
 	FalsePositives float64
 }
@@ -17,8 +17,8 @@ func (fp FilterParams) EstimatedBucketParameters() (bitsCount, hashFunctionsNumb
 	)
 }
 
-func (fp FilterParams) BucketID(data []byte) uint64 {
-	return bloom.Locations(data, 1)[0] % uint64(fp.BucketsCount)
+func (fp FilterParams) BucketID(data []byte) int {
+	return int(bloom.Locations(data, 1)[0] % uint64(fp.BucketsCount))
 }
 
 type TestPresence interface {
