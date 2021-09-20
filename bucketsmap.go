@@ -5,29 +5,29 @@ import (
 )
 
 type initializedBuckets struct {
-	buckets map[uint32]struct{}
+	buckets map[int]struct{}
 	rwm     sync.RWMutex
 }
 
 //nolint:unused // keep it for next iterations
-func (b *initializedBuckets) isInitialized(bucketID uint32) bool {
+func (b *initializedBuckets) isInitialized(bucketID int) bool {
 	b.rwm.RLock()
 	defer b.rwm.RUnlock()
 	_, exists := b.buckets[bucketID]
 	return exists
 }
 
-func (b *initializedBuckets) initialize(bucketID uint32) {
+func (b *initializedBuckets) initialize(bucketID int) {
 	b.rwm.Lock()
 	defer b.rwm.Unlock()
 	if b.buckets == nil {
-		b.buckets = map[uint32]struct{}{}
+		b.buckets = map[int]struct{}{}
 	}
 	b.buckets[bucketID] = struct{}{}
 }
 
 //nolint:unused // keep it for next iterations
-func (b *initializedBuckets) deinitialize(bucketID uint32) {
+func (b *initializedBuckets) deinitialize(bucketID int) {
 	b.rwm.Lock()
 	defer b.rwm.Unlock()
 	delete(b.buckets, bucketID)

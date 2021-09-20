@@ -129,11 +129,11 @@ func (df *DistributedFilter) TestUint64(i uint64) bool {
 	return df.Test(uint64ToByte(i))
 }
 
-func (df *DistributedFilter) GenerateBucketsMap() (map[uint32][]byte, error) {
+func (df *DistributedFilter) GenerateBucketsMap() (map[int][]byte, error) {
 	df.hooks.Before(GenerateBuckets)
 	var batchErr *multierror.Error
-	m := make(map[uint32][]byte, df.FilterParams.BucketsCount)
-	for bucketID := uint32(0); bucketID < df.FilterParams.BucketsCount; bucketID++ {
+	m := make(map[int][]byte, df.FilterParams.BucketsCount)
+	for bucketID := 0; bucketID < df.FilterParams.BucketsCount; bucketID++ {
 		df.hooks.Before(GenerateParticularBucket, bucketID)
 		if !df.initializedBuckets.isInitialized(bucketID) {
 			// @todo consider adding an error
@@ -141,7 +141,7 @@ func (df *DistributedFilter) GenerateBucketsMap() (map[uint32][]byte, error) {
 			continue
 		}
 		var buf bytes.Buffer
-		_, writeErr := df.inMemory.WriteTo(uint64(bucketID), &buf)
+		_, writeErr := df.inMemory.WriteTo(bucketID, &buf)
 		if writeErr != nil {
 			writeErr = errors.Wrapf(writeErr, "bucket %d bytes generation failed", bucketID)
 			df.hooks.AfterFail(GenerateParticularBucket, writeErr, bucketID)
@@ -155,7 +155,7 @@ func (df *DistributedFilter) GenerateBucketsMap() (map[uint32][]byte, error) {
 	return m, batchErr.ErrorOrNil()
 }
 
-func (df *DistributedFilter) WriteTo(bucketID uint64, stream io.Writer) (int64, error) {
+func (df *DistributedFilter) WriteTo(bucketID int, stream io.Writer) (int64, error) {
 	return df.inMemory.WriteTo(bucketID, stream)
 }
 
@@ -217,7 +217,7 @@ func (df *DistributedFilter) applySourcesToBuckets(ctx context.Context, dataSour
 		}
 		df.hooks.After(ApplySources, errorsBatch.ErrorOrNil(), dataSourceName, results)
 	} else {
-		for bucketID := uint64(0); bucketID < uint64(df.FilterParams.BucketsCount); bucketID++ {
+		for bucketID := 0; bucketID < df.FilterParams.BucketsCount; bucketID++ {
 			if dumpErr := df.tryDumpBucket(ctx, dataSourceName, results, bucketID); dumpErr != nil {
 				errorsBatch = multierror.Append(errorsBatch, dumpErr)
 			}
@@ -227,7 +227,7 @@ func (df *DistributedFilter) applySourcesToBuckets(ctx context.Context, dataSour
 	return errorsBatch
 }
 
-func (df *DistributedFilter) tryDumpBucket(ctx context.Context, dataSourceName string, results DataLoaderResults, bucketID uint64) error {
+func (df *DistributedFilter) tryDumpBucket(ctx context.Context, dataSourceName string, results DataLoaderResults, bucketID int) error {
 	if results.DumpStateInRedis {
 		df.hooks.Before(DumpStateInRedisForBucket, bucketID, dataSourceName, results)
 		dumpErr := df.dumpStateInRedis(ctx, bucketID, results.FinalizeFilter)
@@ -243,10 +243,10 @@ func (df *DistributedFilter) tryDumpBucket(ctx context.Context, dataSourceName s
 func (df *DistributedFilter) tryFinalizeFilterState(ctx context.Context, dataSourceName string, results DataLoaderResults, errorsBatch *multierror.Error) *multierror.Error {
 	if results.FinalizeFilter && errorsBatch.ErrorOrNil() == nil {
 		df.hooks.Before(FinalizeFilters, dataSourceName, results)
-		for bucketID := uint32(0); bucketID < df.FilterParams.BucketsCount; bucketID++ {
+		for bucketID := 0; bucketID < df.FilterParams.BucketsCount; bucketID++ {
 			df.hooks.Before(FinalizeFilterForBucket, bucketID, dataSourceName, results)
 			df.initializedBuckets.initialize(bucketID)
-			initializationErr := df.redisBloom.initializeFilter(ctx, uint64(bucketID))
+			initializationErr := df.redisBloom.initializeFilter(ctx, bucketID)
 			if initializationErr != nil {
 				initializationErr = errors.Wrapf(initializationErr, "redis initialization filter failed for bucket %d", bucketID)
 				errorsBatch = multierror.Append(errorsBatch, initializationErr)
@@ -258,7 +258,7 @@ func (df *DistributedFilter) tryFinalizeFilterState(ctx context.Context, dataSou
 	return errorsBatch
 }
 
-func (df *DistributedFilter) dumpStateInRedis(ctx context.Context, bucketID uint64, addFinalBit bool) error {
+func (df *DistributedFilter) dumpStateInRedis(ctx context.Context, bucketID int, addFinalBit bool) error {
 	var buf bytes.Buffer
 	if _, writeBufferErr := df.inMemory.WriteTo(bucketID, &buf); writeBufferErr != nil {
 		return errors.Wrapf(writeBufferErr, "in-memory filter serialzation failed for bucket %d", bucketID)

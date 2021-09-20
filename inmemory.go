@@ -18,7 +18,7 @@ type InMemoryBlooms struct {
 func NewInMemory(filterParams FilterParams) *InMemoryBlooms {
 	filters := make([]*bloom.BloomFilter, filterParams.BucketsCount)
 	bitsCount, hashFunctionsNumber := filterParams.EstimatedBucketParameters()
-	for i := uint32(0); i < filterParams.BucketsCount; i++ {
+	for i := 0; i < filterParams.BucketsCount; i++ {
 		filters[i] = bloom.New(bitsCount, hashFunctionsNumber)
 	}
 
@@ -72,16 +72,16 @@ func (b *InMemoryBlooms) TestUint64(i uint64) bool {
 	return b.Test(uint64ToByte(i))
 }
 
-func (b *InMemoryBlooms) Restore(bucketID uint64, stream io.Reader) error {
+func (b *InMemoryBlooms) Restore(bucketID int, stream io.Reader) error {
 	_, err := b.filters[bucketID].ReadFrom(stream)
 	return err
 }
 
-func (b *InMemoryBlooms) WriteTo(bucketID uint64, stream io.Writer) (int64, error) {
+func (b *InMemoryBlooms) WriteTo(bucketID int, stream io.Writer) (int64, error) {
 	return b.filters[bucketID].WriteTo(stream)
 }
 
-func (b *InMemoryBlooms) AddFrom(bucketID uint64, stream io.Reader) error {
+func (b *InMemoryBlooms) AddFrom(bucketID int, stream io.Reader) error {
 	var restored bloom.BloomFilter
 	if _, restoreErr := restored.ReadFrom(stream); restoreErr != nil {
 		return errors.Wrap(restoreErr, "filter restore error")

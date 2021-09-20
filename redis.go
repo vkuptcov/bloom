@@ -48,7 +48,7 @@ func NewRedisBloom(
 
 func (r *RedisBloom) Init(ctx context.Context) error {
 	pipeliner := r.client.Pipeliner(ctx)
-	for bucketID := uint64(0); bucketID < uint64(r.filterParams.BucketsCount); bucketID++ {
+	for bucketID := 0; bucketID < r.filterParams.BucketsCount; bucketID++ {
 		key := r.redisKeyByBucket(bucketID)
 		r.writeHeader(pipeliner, key)
 		r.ensureFilterSize(pipeliner, key)
@@ -71,7 +71,7 @@ func (r *RedisBloom) Test(ctx context.Context, data []byte) (bool, error) {
 	return r.client.CheckBits(ctx, key, offsets...)
 }
 
-func (r *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Writer) (int64, error) {
+func (r *RedisBloom) WriteTo(ctx context.Context, bucketID int, stream io.Writer) (int64, error) {
 	b, gettingBytesErr := r.client.Get(ctx, r.redisKeyByBucket(bucketID))
 	if gettingBytesErr != nil {
 		return 0, errors.Wrapf(gettingBytesErr, "getting filter data failed for bucket %d", bucketID)
@@ -81,7 +81,7 @@ func (r *RedisBloom) WriteTo(ctx context.Context, bucketID uint64, stream io.Wri
 }
 
 // MergeWith adds data from buf into the existing data in Redis
-func (r *RedisBloom) MergeWith(ctx context.Context, bucketID uint64, addFinalBit bool, buf *bytes.Buffer) error {
+func (r *RedisBloom) MergeWith(ctx context.Context, bucketID int, addFinalBit bool, buf *bytes.Buffer) error {
 	if headerCheckErr := r.checkHeader(buf.Bytes()); headerCheckErr != nil {
 		return headerCheckErr
 	}
@@ -132,21 +132,21 @@ func (r *RedisBloom) maxLenWithHeader() uint64 {
 	return dataOffset + ((uint64(r.bitsCount)/wordSize)+1)*wordSize
 }
 
-func (r *RedisBloom) redisKeyByBucket(bucketID uint64) string {
+func (r *RedisBloom) redisKeyByBucket(bucketID int) string {
 	return "{" + r.cachePrefix +
 		"|" + strconv.FormatUint(uint64(r.bitsCount), 10) +
 		"|" + strconv.FormatUint(uint64(r.hashFunctionsNumber), 10) +
-		"|" + strconv.FormatUint(bucketID, 10) + "}"
+		"|" + strconv.Itoa(bucketID) + "}"
 }
 
-func (r *RedisBloom) initializeFilter(ctx context.Context, bucketID uint64) (err error) {
+func (r *RedisBloom) initializeFilter(ctx context.Context, bucketID int) (err error) {
 	key := r.redisKeyByBucket(bucketID)
 	p := r.client.Pipeliner(ctx)
 	r.finalizeInitState(p, key)
 	return p.Exec()
 }
 
-func (r *RedisBloom) checkRedisFilterState(ctx context.Context, bucketID uint64) (isInitialized bool, err error) {
+func (r *RedisBloom) checkRedisFilterState(ctx context.Context, bucketID int) (isInitialized bool, err error) {
 	key := r.redisKeyByBucket(bucketID)
 	return r.client.CheckBits(ctx, key, r.maxLenWithHeader()+1)
 }

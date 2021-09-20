@@ -84,7 +84,7 @@ func TestBloomFiltersEquality(t *testing.T) {
 	t.Run("restore bloom filter", func(t *testing.T) {
 		require := requireLib.New(t)
 		restoredInMemory := NewInMemory(filterParams)
-		for bucketID := uint64(0); bucketID < bucketsCount; bucketID++ {
+		for bucketID := 0; bucketID < bucketsCount; bucketID++ {
 			var redisFilterBuf bytes.Buffer
 			writer := bufio.NewWriter(&redisFilterBuf)
 			_, redisBloomWriteErr := redisFilter.WriteTo(context.Background(), bucketID, writer)

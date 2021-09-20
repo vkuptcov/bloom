@@ -14,7 +14,7 @@ var UnsupportedDataTypeErr = errors.New("unsupported data type")
 
 type DataLoaderResults struct {
 	Name              string
-	SourcesPerBucket  map[uint64][]byte
+	SourcesPerBucket  map[int][]byte
 	DumpStateInRedis  bool
 	NeedRunNextLoader bool
 	FinalizeFilter    bool
@@ -33,7 +33,7 @@ func (r DataLoaderResults) String() string {
 
 func DefaultResults() DataLoaderResults {
 	return DataLoaderResults{
-		SourcesPerBucket: map[uint64][]byte{},
+		SourcesPerBucket: map[int][]byte{},
 	}
 }
 
@@ -72,9 +72,9 @@ var RedisStateCheck = NewDataLoader(
 		results.Name = "RedisStateCheck"
 		results.NeedRunNextLoader = false
 		var initializedBucketsCount int
-		for bucketID := uint32(0); bucketID < redisBloom.filterParams.BucketsCount; bucketID++ {
+		for bucketID := 0; bucketID < redisBloom.filterParams.BucketsCount; bucketID++ {
 			df.hooks.Before(RedisFiltersStateForBucket, bucketID)
-			inited, checkErr := redisBloom.checkRedisFilterState(ctx, uint64(bucketID))
+			inited, checkErr := redisBloom.checkRedisFilterState(ctx, bucketID)
 			if checkErr != nil {
 				checkErr = errors.Wrapf(checkErr, "bloom filter init state check error for bucket %d", bucketID)
 				df.hooks.AfterFail(RedisFiltersStateForBucket, checkErr, bucketID)
@@ -88,7 +88,7 @@ var RedisStateCheck = NewDataLoader(
 			}
 			df.hooks.AfterSuccess(RedisFiltersStateForBucket, bucketID, inited)
 		}
-		if df.initializedBuckets.len() != int(df.FilterParams.BucketsCount) {
+		if df.initializedBuckets.len() != df.FilterParams.BucketsCount {
 			results.NeedRunNextLoader = true
 		}
 		df.hooks.After(RedisFiltersStatesCheck, errorsBatch.ErrorOrNil(), initializedBucketsCount, results)
@@ -106,7 +106,7 @@ var BulkLoaderFromRedis = NewDataLoader(
 		results.Name = "BulkLoaderFromRedis"
 		results.NeedRunNextLoader = false
 
-		for bucketID := uint64(0); bucketID < uint64(redisBloom.filterParams.BucketsCount); bucketID++ {
+		for bucketID := 0; bucketID < redisBloom.filterParams.BucketsCount; bucketID++ {
 			df.hooks.Before(BulkLoadingFromRedisForBucket, bucketID)
 			var redisFilterBuf bytes.Buffer
 			writer := bufio.NewWriter(&redisFilterBuf)
