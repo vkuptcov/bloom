@@ -143,28 +143,58 @@ var BulkLoaderFromRedis = NewDataLoader(
 	},
 )
 
-func NewRawDataInMemoryLoader(name string, dataChannelCreator func() <-chan interface{}, initialResults DataLoaderResults) DataLoader {
+func NewRawDataInMemoryLoader(name string, dataChannelCreator func() <-chan DataOrErr, initialResults DataLoaderResults) DataLoader {
 	return NewDataLoader(
 		name,
 		func(ctx context.Context, df *DistributedFilter) (DataLoaderResults, error) {
 			dataCh := dataChannelCreator()
 			for data := range dataCh {
-				switch d := data.(type) {
-				case string:
-					df.inMemory.AddString(d)
-				case []byte:
+				if data.Err != nil {
+					return initialResults, data.Err
+				}
+				switch d := data.Data.(type) {
+				case DataString:
+					df.inMemory.AddString(string(d))
+				case DataBytes:
 					df.inMemory.Add(d)
-				case uint16:
-					df.inMemory.AddUint16(d)
-				case uint32:
-					df.inMemory.AddUint32(d)
-				case uint64:
-					df.inMemory.AddUint64(d)
-				default:
-					return initialResults, errors.Wrapf(UnsupportedDataTypeErr, "unsupported data type in channel: %T", d)
+				case DataUInt16:
+					df.inMemory.AddUint16(uint16(d))
+				case DataUInt32:
+					df.inMemory.AddUint32(uint32(d))
+				case DataUInt64:
+					df.inMemory.AddUint64(uint64(d))
 				}
 			}
 			return initialResults, nil
 		},
 	)
+}
+
+type DataString string
+
+func (DataString) sealed() {}
+
+type DataBytes []byte
+
+func (DataBytes) sealed() {}
+
+type DataUInt16 uint16
+
+func (DataUInt16) sealed() {}
+
+type DataUInt32 uint32
+
+func (DataUInt32) sealed() {}
+
+type DataUInt64 uint64
+
+func (DataUInt64) sealed() {}
+
+type rawData interface {
+	sealed()
+}
+
+type DataOrErr struct {
+	Data rawData
+	Err  error
 }
